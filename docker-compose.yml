@@ -53,3 +53,4 @@ services:
       # This ensures logs written to /app/inference/graph/logs/ inside the container
       # are immediately accessible at ./inference/graph/logs/ on your local machine
       - ./inference/graph/logs:/app/inference/graph/logs
+      - ./artifacts:/app/artifacts

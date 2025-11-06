@@ -17,13 +17,13 @@ deep_rag/
 │   │   ├── graph.py           # LangGraph pipeline definition with conditional routing nodes
 │   │   ├── graph_wrapper.py   # Wrapper for LangGraph pipeline with logging
 │   │   └── graph_viz.py       # Graph visualization export (PNG/Mermaid)
-│   └── samples/               # Sample PDFs for testing
+│   └── samples/               # Sample PDFs + Images for testing
 │
 ├── ingestion/
 │   ├── ingest.py              # PDF ingestion: deterministic PDF→text/OCR pipeline with embedding + pgvector upsert
 │   ├── ingest_text.py         # Plain text file ingestion
 │   ├── ingest_image.py        # Image file ingestion (PNG, JPEG) with OCR extraction
-│   └── embeddings.py          # Multi-modal embedding system (CLIP) for unified text/image embeddings
+│   └── embeddings.py          # Multi-modal embedding system (CLIP) for unified text/image embeddings (same space)
 │
 ├── retrieval/
 │   ├── retrieval.py           # Hybrid retrieval: lexical (pg_trgm) + vector (pgvector) + cross-encoder reranking
@@ -263,8 +263,8 @@ The Deep RAG system provides multiple entry points for different use cases:
 | CLI Command | Make Script | REST Endpoint | Pipeline | Purpose |
 |------------|-------------|---------------|----------|---------|
 | `ingest` | `make cli-ingest` | `POST /ingest` | Direct | **Ingestion only**: Embeds documents into vector DB without querying. Use when you want to pre-populate your knowledge base. |
-| `query` | `make query` | `POST /ask` | Direct (`agent_loop.py`) | **Query only (direct pipeline)**: Fast, deterministic pipeline for simple queries. No conditional routing. Best for straightforward questions. |
-| `query-graph` | `make query-graph` | `POST /ask-graph` | LangGraph | **Query only (LangGraph)**: Agentic pipeline with conditional routing. Agents can refine queries and retrieve more evidence if confidence is low. Best for complex questions requiring iterative reasoning. |
+| `query` | `make query` | `POST /ask` | Direct (`agent_loop.py`) | **Query only (direct pipeline)**: Fast, deterministic pipeline for simple queries. No conditional routing. Best for straightforward questions. Supports optional `--doc-id` parameter to filter retrieval to a specific document. |
+| `query-graph` | `make query-graph` | `POST /ask-graph` | LangGraph | **Query only (LangGraph)**: Agentic pipeline with conditional routing. Agents can refine queries and retrieve more evidence if confidence is low. Best for complex questions requiring iterative reasoning. Supports optional `--doc-id` parameter to filter retrieval to a specific document. |
 | `infer` | N/A (use CLI) | `POST /infer` | Direct (`agent_loop.py`) | **Ingest + Query (direct pipeline)**: Combined ingestion and querying in one operation. Use when you have a document and want immediate answers with fast, deterministic processing. |
 | `infer-graph` | `make infer-graph` | `POST /infer-graph` | LangGraph | **Ingest + Query (LangGraph)**: Combined ingestion with agentic reasoning. Best when you need to ingest and then perform complex reasoning over the new content. Supports file upload, title, and thread_id. |
 | `health` | N/A | `GET /health` | N/A | **Health check**: Verifies database connectivity and service availability. |
@@ -275,6 +275,313 @@ The Deep RAG system provides multiple entry points for different use cases:
 
 - **Direct Pipeline** (`agent_loop.py`): Linear execution, faster, deterministic. Best for simple queries.
 - **LangGraph Pipeline** (`graph/graph_wrapper.py`): Conditional routing, agents can refine queries, iterative retrieval. Best for complex questions requiring multi-step reasoning.
+
+---
+
+# 📄 Document ID (`doc_id`) and Context Reasoning
+
+## Overview
+
+Deep RAG uses **Document IDs (`doc_id`)** to enable document-specific retrieval and context-aware reasoning. Every chunk in the vector database is linked to its source document via a `doc_id` UUID, allowing the system to:
+
+- **Filter retrieval** to specific documents when needed
+- **Track provenance** of retrieved information
+- **Provide document context** to the LLM for better reasoning
+- **Identify document sources** from retrieved chunks when querying without ingestion
+
+## Database Schema
+
+The `doc_id` is stored in the PostgreSQL `chunks` table:
+
+```sql
+CREATE TABLE chunks (
+  chunk_id    UUID PRIMARY KEY,
+  doc_id      UUID REFERENCES documents(doc_id) ON DELETE CASCADE,
+  page_start  INT,
+  page_end    INT,
+  text        TEXT NOT NULL,
+  emb         vector(768),  -- pgvector embedding
+  ...
+);
+```
+
+**Key Points:**
+- `doc_id` is a UUID that references the `documents` table
+- Every chunk is linked to its source document via `doc_id`
+- `ON DELETE CASCADE` ensures chunks are deleted when a document is removed
+- `doc_id` is included in all retrieval queries and results
+
+## How `doc_id` Flows Through the System
+
+### During Ingestion
+
+When a document is ingested (PDF, TXT, PNG, JPEG), the system:
+1. Creates a new document record in the `documents` table → generates `doc_id`
+2. Chunks the document content
+3. Embeds each chunk
+4. Inserts chunks into the `chunks` table with the `doc_id` reference
+5. **Returns the `doc_id`** to the caller
+
+### During Retrieval
+
+When querying, the system:
+1. **If `doc_id` is provided**: Filters retrieval to chunks from that specific document
+2. **If `doc_id` is not provided**: Searches across all documents in the knowledge base
+3. **If `doc_id` is not provided but chunks are retrieved**: The synthesizer can identify `doc_id` from retrieved chunks (if all chunks come from one document)
+
+### During Synthesis
+
+The synthesizer uses `doc_id` context to:
+- Include document-specific context in the LLM prompt
+- Provide better reasoning about which document the answer is based on
+- Log which document(s) were used for the answer
+
+## Four Usage Scenarios
+
+### Scenario 1: Query Only (No Ingestion, No `doc_id`)
+
+**User asks a question without providing a document or `doc_id`.**
+
+**Flow:**
+1. User queries existing knowledge base
+2. System retrieves chunks from all documents
+3. Synthesizer identifies `doc_id` from retrieved chunks (if all chunks come from one document)
+4. Answer is generated with document context when available
+
+**Entry Points:**
+```bash
+# CLI
+python inference/cli.py query "What are the requirements?"
+python inference/cli.py query-graph "What are the requirements?" --thread-id session-1
+
+# REST API
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the requirements?"}'
+
+curl -X POST http://localhost:8000/ask-graph \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the requirements?", "thread_id": "session-1"}'
+```
+
+**What Happens:**
+- Retrieval searches across all documents
+- If retrieved chunks all come from one document, that `doc_id` is identified and used for context
+- Synthesizer includes document context in prompt when `doc_id` is identified
+
+---
+
+### Scenario 2: Ingest + Query (On-the-Fly `doc_id`)
+
+**User ingests a document and immediately queries it.**
+
+**Flow:**
+1. Document is ingested → `doc_id` is generated and returned
+2. System waits for chunks to be available in the database
+3. Query is executed with the newly created `doc_id` filter
+4. Retrieval is filtered to the specific document
+5. Answer is generated with document-specific context
+
+**Entry Points:**
+```bash
+# CLI
+python inference/cli.py infer "What does this document say?" --file "path/to/file.pdf"
+python inference/cli.py infer-graph "Analyze this document" --file "path/to/file.pdf" --title "Doc Title" --thread-id session-1
+
+# REST API
+curl -X POST http://localhost:8000/infer \
+  -F "question=What does this document say about RAG systems?" \
+  -F "attachment=@path/to/file.pdf" \
+  -F "title=Optional Title"
+
+curl -X POST http://localhost:8000/infer-graph \
+  -F "question=What are the key requirements?" \
+  -F "attachment=@path/to/file.pdf" \
+  -F "title=Optional Title" \
+  -F "thread_id=session-1"
+```
+
+**What Happens:**
+- Document is ingested → `doc_id` is created (e.g., `550e8400-e29b-41d4-a716-446655440000`)
+- System waits for chunks to be available (ensures embeddings are complete)
+- Query is executed with `doc_id` filter → retrieval only searches chunks from that document
+- Planner, retriever, and synthesizer all use `doc_id` for document-specific context
+- Answer is generated with full document context
+
+**Example Output:**
+```
+📄 Ingesting file: technical_assessment.pdf...
+✅ Ingested: technical_assessment.pdf
+📋 Document ID: 550e8400-e29b-41d4-a716-446655440000
+⏳ Waiting for chunks to be available for document 550e8400...
+✅ Found 45 chunks, ready to query
+🔍 Starting query with document filter: 550e8400...
+```
+
+---
+
+### Scenario 3: Query with `doc_id` Reference (No Ingestion)
+
+**User queries a specific document by providing its `doc_id`.**
+
+**Flow:**
+1. User provides `doc_id` (from previous ingestion or inspection)
+2. Query is executed with `doc_id` filter
+3. Retrieval is filtered to chunks from that specific document
+4. Answer is generated with document-specific context
+
+**Entry Points:**
+```bash
+# CLI
+python inference/cli.py query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000
+python inference/cli.py query-graph "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --thread-id session-1
+
+# REST API
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the requirements?", "doc_id": "550e8400-e29b-41d4-a716-446655440000"}'
+
+curl -X POST http://localhost:8000/ask-graph \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the requirements?", "doc_id": "550e8400-e29b-41d4-a716-446655440000", "thread_id": "session-1"}'
+```
+
+**What Happens:**
+- Retrieval is filtered to chunks from the specified document
+- Planner, retriever, and synthesizer all use `doc_id` for document-specific context
+- Answer is generated with full document context
+- Useful when you know which document you want to query
+
+**How to Get `doc_id`:**
+```bash
+# Inspect documents to find doc_id
+python inference/cli.py inspect --title "Document Title"
+python inference/cli.py inspect  # List all documents with their doc_ids
+```
+
+---
+
+### Scenario 4: Ingest Only (No Query)
+
+**User ingests a document without querying it.**
+
+**Flow:**
+1. Document is ingested → `doc_id` is generated
+2. Chunks are created and embedded
+3. Chunks are inserted into the database with `doc_id` reference
+4. **`doc_id` is returned** to the caller (even though no query is performed)
+
+**Entry Points:**
+```bash
+# CLI
+python inference/cli.py ingest "path/to/file.pdf"
+python inference/cli.py ingest "path/to/file.pdf" --title "Custom Title"
+
+# REST API
+curl -X POST http://localhost:8000/ingest \
+  -F "attachment=@path/to/file.pdf" \
+  -F "title=Optional Document Title"
+```
+
+**What Happens:**
+- Document is ingested → `doc_id` is created
+- Chunks are embedded and stored in the database
+- **`doc_id` is returned** in the response
+- Document is now available for future queries
+
+**Example Output:**
+```
+📄 Ingesting file: technical_assessment.pdf...
+✅ Ingested: technical_assessment.pdf
+📋 Document ID: 550e8400-e29b-41d4-a716-446655440000
+```
+
+**Use Case:**
+- Pre-populate knowledge base with documents
+- Store `doc_id` for later queries (Scenario 3)
+- Batch ingestion workflows
+
+---
+
+## How `doc_id` Enhances Context Reasoning
+
+### 1. Document-Specific Filtering
+
+When `doc_id` is provided, retrieval is filtered to that specific document:
+
+```python
+# Retrieval SQL includes doc_id filter
+WHERE c.doc_id = %(doc_id)s
+```
+
+**Benefits:**
+- Faster retrieval (searches smaller subset)
+- More relevant results (only from target document)
+- Better for document-specific questions
+
+### 2. Context-Aware Planning
+
+The planner includes document context in its prompt:
+
+```python
+if doc_id:
+    doc_context = "\n\nNote: This question is about a specific document that was just ingested. Focus your planning on this document's content."
+```
+
+**Benefits:**
+- Planner generates more focused sub-goals
+- Better query decomposition for document-specific questions
+
+### 3. Document-Aware Synthesis
+
+The synthesizer uses `doc_id` context in the final answer generation:
+
+```python
+if doc_id:
+    doc_context = "\n\nNote: This answer is based on a specific document that was recently ingested or identified from the knowledge base. Focus your answer on this document's content."
+```
+
+**Benefits:**
+- LLM generates answers with document context
+- Better reasoning about document-specific content
+- More accurate answers for document-focused questions
+
+### 4. Automatic Document Identification
+
+When querying without `doc_id`, the synthesizer can identify the document from retrieved chunks:
+
+```python
+# If all retrieved chunks come from one document
+if len(doc_ids_found) == 1:
+    doc_id = list(doc_ids_found)[0]
+    # Use doc_id for context in synthesis
+```
+
+**Benefits:**
+- Automatic document context even when not explicitly provided
+- Better reasoning when all evidence comes from one document
+
+---
+
+## Entry Point Summary
+
+| Entry Point | Ingestion | Query | `doc_id` Source | Use Case |
+|------------|-----------|-------|----------------|----------|
+| `ingest` / `POST /ingest` | ✅ | ❌ | Generated | Pre-populate knowledge base |
+| `query` / `POST /ask` | ❌ | ✅ | Optional (provided or identified) | Query existing documents |
+| `query-graph` / `POST /ask-graph` | ❌ | ✅ | Optional (provided or identified) | Query with agentic reasoning |
+| `infer` / `POST /infer` | ✅ | ✅ | Generated on-the-fly | Ingest + query in one operation |
+| `infer-graph` / `POST /infer-graph` | ✅ | ✅ | Generated on-the-fly | Ingest + query with agentic reasoning |
+
+---
+
+## Best Practices
+
+1. **Store `doc_id` after ingestion**: Save the returned `doc_id` for future queries (Scenario 3)
+2. **Use `doc_id` for document-specific questions**: Filter retrieval when you know which document to query
+3. **Let the system identify `doc_id`**: When querying without `doc_id`, the system will identify it from retrieved chunks if possible
+4. **Inspect documents**: Use `inspect` command to find `doc_id` values for existing documents
+5. **Wait for chunks**: When ingesting + querying, the system automatically waits for chunks to be available
 
 ---
 
@@ -377,7 +684,9 @@ python inference/cli.py ingest "path/to/file.pdf" --title "Custom Title"
 
 # Query existing documents
 python inference/cli.py query "What are the main sections?"
+python inference/cli.py query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000
 python inference/cli.py query-graph "What are the requirements?" --thread-id session-1
+python inference/cli.py query-graph "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --thread-id session-1
 
 # Ingest + Query in one command
 python inference/cli.py infer "What does this document say?" --file "path/to/file.pdf"
@@ -445,8 +754,13 @@ make cli-ingest FILE="path/to/file.pdf" DOCKER=true
 make cli-ingest FILE="path/to/file.pdf" DOCKER=true TITLE="Custom Title"
 
 # Query documents
+# Query all documents
 make query Q="Your question here" DOCKER=true
 make query-graph Q="Complex question" DOCKER=true THREAD_ID=session-1
+
+# Query specific document by doc_id (Scenario 3)
+make query Q="What are the requirements?" DOCKER=true DOC_ID=550e8400-e29b-41d4-a716-446655440000
+make query-graph Q="What are the requirements?" DOCKER=true THREAD_ID=session-1 DOC_ID=550e8400-e29b-41d4-a716-446655440000
 
 # Ingest + Query
 make infer-graph Q="Your question" FILE="path/to/file.pdf" TITLE="Title" DOCKER=true THREAD_ID=session-1
@@ -516,16 +830,28 @@ curl -X POST http://localhost:8000/ingest \
 
 #### POST /ask (Query - Direct Pipeline)
 ```bash
+# Query all documents
 curl -X POST http://localhost:8000/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "What is the document about?"}'
+
+# Query specific document by doc_id
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is the document about?", "doc_id": "550e8400-e29b-41d4-a716-446655440000"}'
 ```
 
 #### POST /ask-graph (Query - LangGraph Pipeline)
 ```bash
+# Query all documents
 curl -X POST http://localhost:8000/ask-graph \
   -H "Content-Type: application/json" \
   -d '{"question": "What are the specific requirements?", "thread_id": "session-1"}'
+
+# Query specific document by doc_id
+curl -X POST http://localhost:8000/ask-graph \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the specific requirements?", "thread_id": "session-1", "doc_id": "550e8400-e29b-41d4-a716-446655440000"}'
 ```
 
 #### POST /infer (Ingest + Query - Direct)
@@ -632,6 +958,8 @@ curl "http://localhost:8000/diagnostics/document?doc_title=Your%20Title"
 
 ## Check Retrieval Logs
 The system logs show which pages are represented in retrieved chunks:
+
+`cat inference/graph/logs/agent_log_*.txt`
 - Look for "Pages represented in retrieved chunks: [1, 2, ...]"
 - Check text previews to see what content was actually retrieved
 

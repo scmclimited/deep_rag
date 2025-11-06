@@ -57,42 +57,68 @@ DOCKER ?= false
 ingest:
 	@if [ -z "$(FILE)" ]; then echo "Usage: make ingest FILE=path/to/file.pdf [DOCKER=true]"; exit 2; fi
 	@if [ "$(DOCKER)" = "true" ]; then \
-		docker compose exec api python -m ingestion.ingest "$(FILE)"; \
+		FILE_PATH=$$(echo "$(FILE)" | tr '\\\\' '/'); \
+		docker compose exec api python -m ingestion.ingest "$$FILE_PATH"; \
 	else \
 		$(PY) ingestion/ingest.py "$(FILE)"; \
 	fi
 
 query:
-	@if [ -z "$(Q)" ]; then echo "Usage: make query Q='your question' [DOCKER=true]"; exit 2; fi
+	@if [ -z "$(Q)" ]; then echo "Usage: make query Q='your question' [DOCKER=true] [DOC_ID=uuid]"; exit 2; fi
 	@if [ "$(DOCKER)" = "true" ]; then \
-		docker compose exec api python -m inference.cli query "$(Q)"; \
+		if [ -n "$(DOC_ID)" ]; then \
+			docker compose exec api python -m inference.cli query "$(Q)" --doc-id "$(DOC_ID)"; \
+		else \
+			docker compose exec api python -m inference.cli query "$(Q)"; \
+		fi \
 	else \
-		$(PY) inference/cli.py query "$(Q)"; \
+		if [ -n "$(DOC_ID)" ]; then \
+			$(PY) inference/cli.py query "$(Q)" --doc-id "$(DOC_ID)"; \
+		else \
+			$(PY) inference/cli.py query "$(Q)"; \
+		fi \
 	fi
 
 query-graph:
-	@if [ -z "$(Q)" ]; then echo "Usage: make query-graph Q='your question' [DOCKER=true] [THREAD_ID=default]"; exit 2; fi
+	@if [ -z "$(Q)" ]; then echo "Usage: make query-graph Q='your question' [DOCKER=true] [THREAD_ID=default] [DOC_ID=uuid]"; exit 2; fi
 	@if [ "$(DOCKER)" = "true" ]; then \
-		if [ -n "$(THREAD_ID)" ]; then \
-			docker compose exec api python -m inference.cli query-graph "$(Q)" --thread-id "$(THREAD_ID)"; \
+		if [ -n "$(DOC_ID)" ]; then \
+			if [ -n "$(THREAD_ID)" ]; then \
+				docker compose exec api python -m inference.cli query-graph "$(Q)" --thread-id "$(THREAD_ID)" --doc-id "$(DOC_ID)"; \
+			else \
+				docker compose exec api python -m inference.cli query-graph "$(Q)" --doc-id "$(DOC_ID)"; \
+			fi \
 		else \
-			docker compose exec api python -m inference.cli query-graph "$(Q)"; \
+			if [ -n "$(THREAD_ID)" ]; then \
+				docker compose exec api python -m inference.cli query-graph "$(Q)" --thread-id "$(THREAD_ID)"; \
+			else \
+				docker compose exec api python -m inference.cli query-graph "$(Q)"; \
+			fi \
 		fi \
 	else \
-		if [ -n "$(THREAD_ID)" ]; then \
-			$(PY) inference/cli.py query-graph "$(Q)" --thread-id "$(THREAD_ID)"; \
+		if [ -n "$(DOC_ID)" ]; then \
+			if [ -n "$(THREAD_ID)" ]; then \
+				$(PY) inference/cli.py query-graph "$(Q)" --thread-id "$(THREAD_ID)" --doc-id "$(DOC_ID)"; \
+			else \
+				$(PY) inference/cli.py query-graph "$(Q)" --doc-id "$(DOC_ID)"; \
+			fi \
 		else \
-			$(PY) inference/cli.py query-graph "$(Q)"; \
+			if [ -n "$(THREAD_ID)" ]; then \
+				$(PY) inference/cli.py query-graph "$(Q)" --thread-id "$(THREAD_ID)"; \
+			else \
+				$(PY) inference/cli.py query-graph "$(Q)"; \
+			fi \
 		fi \
 	fi
 
 cli-ingest:
 	@if [ -z "$(FILE)" ]; then echo "Usage: make cli-ingest FILE=path/to/file.pdf [DOCKER=true] [TITLE='Document Title']"; exit 2; fi
 	@if [ "$(DOCKER)" = "true" ]; then \
+		FILE_PATH=$$(echo "$(FILE)" | tr '\\\\' '/'); \
 		if [ -n "$(TITLE)" ]; then \
-			docker compose exec api python -m inference.cli ingest "$(FILE)" --title "$(TITLE)"; \
+			docker compose exec api python -m inference.cli ingest "$$FILE_PATH" --title "$(TITLE)"; \
 		else \
-			docker compose exec api python -m inference.cli ingest "$(FILE)"; \
+			docker compose exec api python -m inference.cli ingest "$$FILE_PATH"; \
 		fi \
 	else \
 		if [ -n "$(TITLE)" ]; then \
@@ -107,17 +133,18 @@ infer-graph:
 	@if [ -z "$(Q)" ]; then echo "Usage: make infer-graph Q='your question' [FILE=path/to/file.pdf] [TITLE='Title'] [DOCKER=true] [THREAD_ID=default]"; exit 2; fi
 	@if [ "$(DOCKER)" = "true" ]; then \
 		if [ -n "$(FILE)" ]; then \
+			FILE_PATH=$$(echo "$(FILE)" | tr '\\\\' '/'); \
 			if [ -n "$(TITLE)" ]; then \
 				if [ -n "$(THREAD_ID)" ]; then \
-					docker compose exec api python -m inference.cli infer-graph "$(Q)" --file "$(FILE)" --title "$(TITLE)" --thread-id "$(THREAD_ID)"; \
+					docker compose exec api python -m inference.cli infer-graph "$(Q)" --file "$$FILE_PATH" --title "$(TITLE)" --thread-id "$(THREAD_ID)"; \
 				else \
-					docker compose exec api python -m inference.cli infer-graph "$(Q)" --file "$(FILE)" --title "$(TITLE)"; \
+					docker compose exec api python -m inference.cli infer-graph "$(Q)" --file "$$FILE_PATH" --title "$(TITLE)"; \
 				fi \
 			else \
 				if [ -n "$(THREAD_ID)" ]; then \
-					docker compose exec api python -m inference.cli infer-graph "$(Q)" --file "$(FILE)" --thread-id "$(THREAD_ID)"; \
+					docker compose exec api python -m inference.cli infer-graph "$(Q)" --file "$$FILE_PATH" --thread-id "$(THREAD_ID)"; \
 				else \
-					docker compose exec api python -m inference.cli infer-graph "$(Q)" --file "$(FILE)"; \
+					docker compose exec api python -m inference.cli infer-graph "$(Q)" --file "$$FILE_PATH"; \
 				fi \
 			fi \
 		else \

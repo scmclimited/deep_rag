@@ -1,9 +1,10 @@
 from inference.graph.graph import build_app
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-def ask_with_graph(question: str, thread_id: str = "default") -> str:
+def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[str] = None) -> str:
     """
     Query using LangGraph pipeline with conditional routing.
     
@@ -13,6 +14,7 @@ def ask_with_graph(question: str, thread_id: str = "default") -> str:
     Args:
         question: The question to ask
         thread_id: Optional thread ID for conversation state (default: "default")
+        doc_id: Optional document ID to filter retrieval to a specific document
         
     Returns:
         The final answer from the graph pipeline
@@ -22,11 +24,26 @@ def ask_with_graph(question: str, thread_id: str = "default") -> str:
     logger.info("-" * 40)
     logger.info(f"Question: {question}")
     logger.info(f"Thread ID: {thread_id}")
+    if doc_id:
+        logger.info(f"Document filter: {doc_id[:8]}...")
     
     app = build_app()  # uses ./langgraph_state.sqlite
     # thread_id lets you keep state per ongoing conversation (optional for this pipeline)
+    initial_state = {
+        "question": question, 
+        "plan": "", 
+        "evidence": [], 
+        "notes": "", 
+        "answer": "", 
+        "confidence": 0.0, 
+        "iterations": 0, 
+        "refinements": []
+    }
+    if doc_id:
+        initial_state["doc_id"] = doc_id
+    
     resp = app.invoke(
-        {"question": question, "plan": "", "evidence": [], "notes": "", "answer": "", "confidence": 0.0, "iterations": 0, "refinements": []},
+        initial_state,
         config={"configurable": {"thread_id": thread_id}}
     )
     

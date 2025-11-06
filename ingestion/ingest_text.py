@@ -139,4 +139,5 @@ def ingest_text_file(text_path: str, title: str = None):
         logger.info(f"Ingestion complete: doc_id={doc_id}, {len(chunks)} chunks stored")
     
     print(f"Ingested: {text_path} (title: {title}, {len(chunks)} chunks)")
+    return doc_id
 

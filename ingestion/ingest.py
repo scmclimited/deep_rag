@@ -383,6 +383,7 @@ def ingest(pdf_path: str, title: str=None):
             final_title = Path(resolved_path).stem
             print(f"Could not extract title from PDF, using filename: {final_title} (error: {e})")
     
+    doc_id = None
     try:
         with connect() as conn, conn.cursor() as cur:
             doc_id = upsert_document(cur, final_title, resolved_path)
@@ -402,6 +403,7 @@ def ingest(pdf_path: str, title: str=None):
                 logger.warning(f"Failed to clean up temp directory: {e}")
     
     print(f"Ingested: {resolved_path} (title: {final_title}, {len(chunks)} chunks)")
+    return doc_id
 
 if __name__ == "__main__":
     import sys

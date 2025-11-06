@@ -181,4 +181,5 @@ def ingest_image(image_path: str, title: str = None):
         logger.info(f"Ingestion complete: doc_id={doc_id}, {len(chunks)} chunks stored")
     
     print(f"Ingested: {image_path} (title: {title}, {len(chunks)} chunks)")
+    return doc_id
 

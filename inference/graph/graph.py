@@ -4,8 +4,10 @@ from typing import TypedDict, List, Dict, Any
 import logging
 
 from langgraph.graph import StateGraph, END  # type: ignore[import-untyped]
+from inference.graph.agent_logger import get_agent_logger
 
 logger = logging.getLogger(__name__)
+agent_log = get_agent_logger()  # Initialize comprehensive agent logger
 
 # Try to import SqliteSaver, fallback to None if not available
 try:
@@ -50,6 +52,16 @@ Question: {state['question']}"""
     
     logger.info(f"Generated Plan: {plan_text}")
     logger.info("-" * 40)
+    
+    # Log to agent logger for future training
+    agent_log.log_step(
+        node="planner",
+        action="plan_generation",
+        question=state['question'],
+        plan=plan_text,
+        iterations=state.get("iterations", 0)
+    )
+    
     return {"plan": plan_text, "iterations": state.get("iterations", 0)}
 
 def node_retriever(state: GraphState) -> GraphState:
@@ -83,6 +95,34 @@ def node_retriever(state: GraphState) -> GraphState:
     pages_found = sorted(set([h.get('p0', 0) for h in merged]))
     logger.info(f"Pages represented in retrieved chunks: {pages_found}")
     logger.info("-" * 40)
+    
+    # Log to agent logger with detailed retrieval info
+    agent_log.log_step(
+        node="retriever",
+        action="retrieve",
+        query=q,
+        num_chunks=len(merged),
+        pages=pages_found,
+        metadata={
+            "new_chunks": len(hits),
+            "total_chunks": len(merged),
+            "top_scores": [
+                {
+                    "lex": h.get('lex', 0),
+                    "vec": h.get('vec', 0),
+                    "ce": h.get('ce', 0)
+                } for h in merged[:5]
+            ]
+        }
+    )
+    
+    # Log detailed retrieval results for analysis
+    agent_log.log_retrieval_details(
+        session_id="current",
+        query=q,
+        chunks=merged
+    )
+    
     return {"evidence": merged}
 
 def node_compressor(state: GraphState) -> GraphState:
@@ -100,6 +140,15 @@ Snippets:\n{snippets}"""
     
     logger.info(f"Compressed Notes:\n{notes_text}")
     logger.info("-" * 40)
+    
+    # Log compression step
+    agent_log.log_step(
+        node="compressor",
+        action="compress",
+        num_chunks=len(state.get('evidence', [])),
+        metadata={"notes_length": len(notes_text)}
+    )
+    
     return {"notes": notes_text}
 
 def node_critic(state: GraphState) -> GraphState:
@@ -116,6 +165,19 @@ def node_critic(state: GraphState) -> GraphState:
     logger.info(f"Strong chunks: {strong}/{len(ev)}")
     logger.info(f"Confidence score: {conf:.2f}")
     logger.info(f"Iterations: {state.get('iterations', 0)}/{MAX_ITERS}")
+    
+    # Log critic evaluation
+    agent_log.log_step(
+        node="critic",
+        action="evaluate",
+        confidence=conf,
+        iterations=state.get('iterations', 0),
+        metadata={
+            "strong_chunks": strong,
+            "total_chunks": len(ev),
+            "threshold": THRESH
+        }
+    )
 
     # If weak confidence and not at loop cap, propose refinements (sub-queries)
     if conf < 0.6 and state.get("iterations", 0) < MAX_ITERS:
@@ -146,6 +208,15 @@ Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & D
         
         logger.info(f"Refinements: {result['refinements']}")
         logger.info("Routing to refine_retrieve node")
+        
+        # Log refinement decision
+        agent_log.log_step(
+            node="critic",
+            action="request_refinement",
+            confidence=conf,
+            iterations=result["iterations"],
+            refinements=result["refinements"]
+        )
     else:
         result["refinements"] = []
         if conf >= 0.6:
@@ -171,7 +242,17 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
     hits_all: List[Dict[str, Any]] = []
     for rq in refinements:
         logger.info(f"Retrieving for: {rq}")
-        hits_all.extend(retrieve_hybrid(rq, k=6, k_lex=30, k_vec=30))
+        hits = retrieve_hybrid(rq, k=6, k_lex=30, k_vec=30)
+        hits_all.extend(hits)
+        
+        # Log each refinement query
+        agent_log.log_step(
+            node="refine_retrieve",
+            action="refine_query",
+            query=rq,
+            num_chunks=len(hits),
+            pages=sorted(set([h.get('p0', 0) for h in hits]))
+        )
     
     logger.info(f"Retrieved {len(hits_all)} additional chunks from refinements")
     
@@ -194,6 +275,19 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
     logger.info(f"Pages represented after merge: {pages_found}")
     logger.info("Routing back to compressor for re-compression")
     logger.info("-" * 40)
+    
+    # Log refinement retrieval summary
+    agent_log.log_step(
+        node="refine_retrieve",
+        action="merge_results",
+        num_chunks=len(merged),
+        pages=pages_found,
+        metadata={
+            "refinement_chunks": len(hits_all),
+            "total_after_merge": len(merged)
+        }
+    )
+    
     return {"evidence": merged}
 
 def node_synthesizer(state: GraphState) -> GraphState:
@@ -225,6 +319,23 @@ Context:
     
     logger.info(f"Generated Answer:\n{out}")
     logger.info("-" * 40)
+    
+    # Log final synthesis
+    agent_log.log_step(
+        node="synthesizer",
+        action="synthesize",
+        question=state['question'],
+        answer=out,
+        num_chunks=len(ctx_evs),
+        pages=sorted(set([h['p0'] for h in ctx_evs])),
+        confidence=state.get('confidence', 0.0),
+        iterations=state.get('iterations', 0),
+        metadata={
+            "citations": citations,
+            "answer_length": len(out)
+        }
+    )
+    
     return {"answer": out}
 
 # ---------- Conditional routing ----------

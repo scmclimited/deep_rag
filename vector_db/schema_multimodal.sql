@@ -13,8 +13,10 @@ CREATE TABLE documents (
   created_at  TIMESTAMP DEFAULT now()
 );
 
--- CLIP-ViT-B/32 produces 512-dimensional embeddings (multi-modal)
+-- CLIP-ViT-L/14 produces 768-dimensional embeddings (multi-modal, upgraded from ViT-B/32)
 -- Supports: text, images, and text+image combinations in same semantic space
+-- Higher dimensions = better semantic representation and retrieval quality
+-- Note: Can use ViT-B/32 (512 dims) for faster performance by setting EMBEDDING_DIM=512
 CREATE TABLE chunks (
   chunk_id    UUID PRIMARY KEY,
   doc_id      UUID REFERENCES documents(doc_id) ON DELETE CASCADE,
@@ -28,7 +30,7 @@ CREATE TABLE chunks (
   image_path  TEXT,                  -- Path to image file if applicable
   -- lexical & vector fields
   lex         tsvector,
-  emb         vector(512),           -- CLIP embeddings (512 dims)
+  emb         vector(768),           -- CLIP embeddings (768 dims for ViT-L/14, 512 for ViT-B/32)
   meta        JSONB DEFAULT '{}'
 );
 

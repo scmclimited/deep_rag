@@ -7,4 +7,4 @@ dependencies = [
 ]
 
 [project.scripts]
-deep-rag = "cli:app"
+deep-rag = "inference.cli:app"

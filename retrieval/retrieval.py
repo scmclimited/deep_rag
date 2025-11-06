@@ -272,5 +272,6 @@ def retrieve_hybrid(
             logger.warning(f"Reranking failed: {e}. Continuing without reranking.")
 
     # MMR diversify on top N, then return top-k
-    diversified = mmr(cands[:20], qemb, lambda_mult=0.6, k=k)
+    # Use a larger candidate pool to ensure better diversity across pages
+    diversified = mmr(cands[:30], qemb, lambda_mult=0.5, k=k)  # Reduced lambda to favor diversity
     return diversified

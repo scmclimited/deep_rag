@@ -9,7 +9,6 @@ import fitz  # PyMuPDF (robust text/blocks); alternative: pdfplumber
 from pdf2image import convert_from_path
 import pytesseract
 import psycopg2, psycopg2.extras as pe
-from sentence_transformers import CrossEncoder
 import numpy as np
 import re
 from PIL import Image
@@ -29,6 +28,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Reranker for query time (still uses text-only cross-encoder)
+# Note: CrossEncoder is imported here (not used in ingestion, but kept for consistency)
 RERANK_MODEL = "BAAI/bge-reranker-base"
 try:
     from sentence_transformers import CrossEncoder

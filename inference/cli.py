@@ -6,6 +6,7 @@ from ingestion.ingest_text import ingest_text_file
 from ingestion.ingest_image import ingest_image
 from inference.agent_loop import run_deep_rag
 from inference.graph.graph_wrapper import ask_with_graph
+from retrieval.diagnostics import print_inspection_report
 
 app = typer.Typer(help="Deep RAG CLI - matches FastAPI service routes")
 
@@ -236,6 +237,28 @@ def graph(out: str = typer.Option("deep_rag_graph.png", "--out", "-o", help="Out
         typer.echo(f"✅ Wrote graph to: {path}")
     except Exception as e:
         typer.echo(f"Error generating graph: {e}", err=True)
+        raise typer.Exit(1)
+
+@app.command()
+def inspect(
+    doc_title: Optional[str] = typer.Option(None, "--title", "-t", help="Document title to search for (partial match)"),
+    doc_id: Optional[str] = typer.Option(None, "--doc-id", "-d", help="Document ID (UUID)")
+):
+    """
+    Inspect what chunks and pages are stored for a document.
+    Useful for debugging ingestion and retrieval issues.
+    
+    Shows:
+    - Total chunks and pages stored
+    - Page distribution with chunk counts
+    - Sample text from each page
+    
+    Matches: GET /diagnostics/document endpoint
+    """
+    try:
+        print_inspection_report(doc_title=doc_title, doc_id=doc_id)
+    except Exception as e:
+        typer.echo(f"Error inspecting document: {e}", err=True)
         raise typer.Exit(1)
 
 if __name__ == "__main__":

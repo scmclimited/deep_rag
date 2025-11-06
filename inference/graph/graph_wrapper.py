@@ -37,6 +37,12 @@ def ask_with_graph(question: str, thread_id: str = "default") -> str:
     logger.info(f"Final Confidence: {resp.get('confidence', 0.0):.2f}")
     logger.info(f"Total Iterations: {resp.get('iterations', 0)}")
     logger.info(f"Total Evidence Chunks: {len(resp.get('evidence', []))}")
+    
+    # Log page distribution in final evidence
+    evidence = resp.get('evidence', [])
+    if evidence:
+        pages_found = sorted(set([h.get('p0', 0) for h in evidence]))
+        logger.info(f"Pages in final evidence: {pages_found}")
     logger.info("-" * 40)
     
     # app.invoke returns the final state; pull the answer:

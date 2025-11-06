@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import TypedDict, List, Dict, Any
-from dataclasses import dataclass
 import logging
 
 from langgraph.graph import StateGraph, END  # type: ignore[import-untyped]
@@ -70,10 +69,19 @@ def node_retriever(state: GraphState) -> GraphState:
         seen.add(h["chunk_id"]); merged.append(h)
     
     logger.info(f"Retrieved {len(hits)} new chunks, {len(merged)} total after merge")
-    for i, hit in enumerate(merged[:5], 1):  # Log top 5
+    for i, hit in enumerate(merged[:10], 1):  # Log top 10 for better visibility
         logger.info(f"  [{i}] Chunk ID: {hit.get('chunk_id', 'N/A')[:8]}...")
         logger.info(f"      Pages: {hit.get('p0', 'N/A')}-{hit.get('p1', 'N/A')}")
+        logger.info(f"      Content Type: {hit.get('content_type', 'N/A')}")
         logger.info(f"      Scores: lex={hit.get('lex', 0):.4f}, vec={hit.get('vec', 0):.4f}, ce={hit.get('ce', 0):.4f}")
+        # Show text preview (first 200 chars) to understand what was retrieved
+        text_preview = hit.get('text', '')[:200] if hit.get('text') else 'N/A'
+        logger.info(f"      Text preview: {text_preview}...")
+    if len(merged) > 10:
+        logger.info(f"  ... and {len(merged) - 10} more chunks")
+    # Log page distribution to see if all pages are represented
+    pages_found = sorted(set([h.get('p0', 0) for h in merged]))
+    logger.info(f"Pages represented in retrieved chunks: {pages_found}")
     logger.info("-" * 40)
     return {"evidence": merged}
 
@@ -167,6 +175,12 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
     
     logger.info(f"Retrieved {len(hits_all)} additional chunks from refinements")
     
+    # Log retrieved chunks with text preview
+    for i, hit in enumerate(hits_all[:5], 1):
+        logger.info(f"  Refinement [{i}] Pages: {hit.get('p0', 'N/A')}-{hit.get('p1', 'N/A')}")
+        text_preview = hit.get('text', '')[:150] if hit.get('text') else 'N/A'
+        logger.info(f"      Text preview: {text_preview}...")
+    
     # Merge with existing evidence
     seen, merged = set(), []
     for h in (state.get("evidence", []) + hits_all):
@@ -175,6 +189,9 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
         seen.add(h["chunk_id"]); merged.append(h)
     
     logger.info(f"Total evidence after merge: {len(merged)} chunks")
+    # Log page distribution after merge
+    pages_found = sorted(set([h.get('p0', 0) for h in merged]))
+    logger.info(f"Pages represented after merge: {pages_found}")
     logger.info("Routing back to compressor for re-compression")
     logger.info("-" * 40)
     return {"evidence": merged}
@@ -187,6 +204,10 @@ def node_synthesizer(state: GraphState) -> GraphState:
     
     ctx_evs = state.get("evidence", [])[:5]
     citations = [f"[{i}] p{h['p0']}–{h['p1']}" for i, h in enumerate(ctx_evs, 1)]
+    # Log which chunks are being used for synthesis
+    logger.info("Chunks used for synthesis:")
+    for i, h in enumerate(ctx_evs, 1):
+        logger.info(f"  [{i}] Pages {h['p0']}–{h['p1']}: {h.get('text', '')[:100]}...")
     context = "\n\n".join([f"[{i}] {h['text'][:1200]}" for i, h in enumerate(ctx_evs, 1)])
     prompt = f"""Answer the question using ONLY the context.
 If insufficient evidence, say "I don't know."

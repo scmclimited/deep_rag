@@ -1,9 +1,7 @@
-# Project Assessment: Deep RAG System
+# Project Assessment: Deep RAG System - Small Pipeline
 
 
-## 📋 Project Capabilities Assessment
-
-### Core Features Implemented
+## 📋 Project Capabilities Assessment -- Core Features Implemented
 
 #### 1. **PDF Ingestion & Processing** ✅
 - **Location**: `ingestion/ingest.py`
@@ -12,7 +10,7 @@
   - OCR fallback for scanned PDFs (pytesseract)
   - Figure caption detection
   - Semantic chunking with overlap
-  - Embedding generation (BAAI/bge-m3)
+  - Embedding generation via `sentence-transformers/clip-ViT-B-32`
   - PostgreSQL + pgvector storage
 
 #### 2. **Hybrid Retrieval System** ✅
@@ -25,7 +23,7 @@
   - Vector similarity search with pgvector
 
 #### 3. **Agentic RAG Pipeline** ✅
-- **Locations**: `inference/agent_loop.py`, `inference/graph.py`
+- **Locations**: `inference/agent_loop.py`, `inference/graph/graph.py`
 - **Capabilities**:
   - Multi-stage reasoning loop:
     - **Planner**: Decomposes questions into sub-goals
@@ -54,7 +52,7 @@
   - `graph` command for visualization export
 
 #### 6. **Database Schema** ✅
-- **Location**: `vector_db/ingestion_schema.sql`
+- **Location**: `vector_db/schema_multimodal.sql`
 - **Capabilities**:
   - PostgreSQL with pgvector extension
   - pg_trgm for lexical search
@@ -72,7 +70,7 @@
   - Production-ready deployment
 
 #### 8. **Graph Visualization** ✅
-- **Location**: `inference/graph_viz.py`
+- **Location**: `inference/graph/graph_viz.py`
 - **Capabilities**:
   - LangGraph visualization export
   - PNG export (requires Graphviz)
@@ -109,7 +107,7 @@
    - Add validation for PDF file uploads
 
 3. **Performance**:
-   - Consider caching for frequently asked questions
+   - Add caching for frequently asked questions
    - Add connection pooling for database connections
    - Optimize embedding generation for large documents
 
@@ -132,27 +130,52 @@
 
 ### Environment Variables (.env file)
 ```bash
-# Database Configuration
+# For local scripts:
+# DB_HOST=localhost
+
+# For Docker Compose runs (recommended):
 DB_HOST=db
 DB_PORT=5432
-DB_USER=user_here
-DB_PASS=password_here
+DB_USER=db_user_per_ENV
+DB_PASS=db_passphrase
 DB_NAME=ragdb
 
-# LLM Provider Configuration
-LLM_PROVIDER=gemini  # Options: "openai", "ollama", "llava", "gemini"
+# Common knobs
+LLM_TEMPERATURE=0.2
+
+# Choose your provider
+LLM_PROVIDER=gemini        
+# or: llava | openai | ollama
+
+GEMINI_API_KEY=AIzaS******************************
+GEMINI_MODEL=gemini-2.5-flash-lite
+
+# - Use ollama to serve open-source/smaller task-specific models
+# - For local ollama model inference, you must execute the following after downloading ollama 
+# - Model used here is llama3:8b or choose your model preference
+
+# Pull the chosen llama model
+## ollama pull llama3:8b 
+
+# wait for execution and then serve the model locally
+# update the ENV variable to the localhost:port combo
+
+## ollama serve
+
+# Ollama (local)
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=llama3:8b
+
 LLAVA_URL=http://localhost:11434
 LLAVA_MODEL=llava-hf/llava-1.5-7b-hf
 
-# Optional: OpenAI Configuration
-# OPENAI_API_KEY=your_key_here
-# OPENAI_MODEL=gpt-4o-mini
+# OpenAI (hosted)
+OPENAI_API_KEY=sk-xxxxxxx
+OPENAI_MODEL=gpt-4o-mini
 
-# Optional: Ollama Configuration
-# OLLAMA_URL=http://localhost:11434
-# OLLAMA_MODEL=llama3:8b
 
-LLM_TEMPERATURE=0.2
+
+
 ```
 
 ## ✅ Project Readiness Summary
@@ -167,8 +190,8 @@ LLM_TEMPERATURE=0.2
 - ✅ **Documentation**: README with setup instructions
 
 ### Conclusion
-The project is **well-structured and production-ready**. It demonstrates:
+The project is **production-ready**. It demonstrates:
 - Modern AI/ML practices (RAG, embeddings, reranking)
 - Software engineering best practices (modularity, containerization)
 - Full-stack capabilities (API, database, CLI)
-- Agentic AI patterns (multi-stage reasoning, self-refinement)
+- Agentic AI patterns (multi-stage reasoning, self-refinement loop with limits)

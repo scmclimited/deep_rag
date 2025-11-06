@@ -6,13 +6,12 @@ import os
 import logging
 from psycopg2 import connect
 from dotenv import load_dotenv
-import numpy as np
 import psycopg2, psycopg2.extras as pe
 
 try:
     from PIL import Image
     import pytesseract
-    from pdf2image import convert_from_path
+    # Note: pdf2image is only used in ingest.py for PDF OCR, not needed for image ingestion
     IMAGE_AVAILABLE = True
 except ImportError:
     IMAGE_AVAILABLE = False
@@ -22,11 +21,8 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # Use unified multi-modal embedding system (CLIP)
-from ingestion.embeddings import embed_text, embed_image, embed_multi_modal, normalize, EMBEDDING_DIM
-
-def normalize(v: np.ndarray) -> np.ndarray:
-    n = np.linalg.norm(v)
-    return v / max(n, 1e-12)
+# Only import what's actually used in this file
+from ingestion.embeddings import embed_text, embed_multi_modal
 
 def connect():
     return psycopg2.connect(

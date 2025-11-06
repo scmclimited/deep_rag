@@ -12,6 +12,7 @@ from inference.graph.graph_wrapper import ask_with_graph
 from ingestion.ingest import ingest as ingest_pdf
 from ingestion.ingest_text import ingest_text_file
 from ingestion.ingest_image import ingest_image
+from retrieval.diagnostics import inspect_document
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,23 @@ def ask(body: AskBody):
         return {"answer": answer, "mode": "query_only", "pipeline": "direct"}
     except Exception as e:
         logger.error(f"Error in /ask: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/diagnostics/document")
+def diagnostics(doc_title: Optional[str] = None, doc_id: Optional[str] = None):
+    """
+    Inspect what chunks and pages are stored for a document.
+    Useful for debugging ingestion and retrieval issues.
+    
+    Query params:
+        doc_title: Document title to search for (partial match)
+        doc_id: Document ID (UUID) - if provided, doc_title is ignored
+    """
+    try:
+        result = inspect_document(doc_title=doc_title, doc_id=doc_id)
+        return result
+    except Exception as e:
+        logger.error(f"Error in diagnostics: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/ask-graph")

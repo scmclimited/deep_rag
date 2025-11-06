@@ -1,6 +1,5 @@
 # agent_graph.py
 from typing import TypedDict, List
-from dataclasses import dataclass
 import logging
 from retrieval.retrieval import retrieve_hybrid
 # from sentence_transformers import CrossEncoder
@@ -52,14 +51,19 @@ def retriever_agent(state: State) -> State:
     state["evidence"] = hits
     
     logger.info(f"Retrieved {len(hits)} chunks:")
-    for i, hit in enumerate(hits[:5], 1):  # Log top 5
+    for i, hit in enumerate(hits[:10], 1):  # Log top 10 for better visibility
         logger.info(f"  [{i}] Chunk ID: {hit.get('chunk_id', 'N/A')[:8]}...")
         logger.info(f"      Pages: {hit.get('p0', 'N/A')}-{hit.get('p1', 'N/A')}")
         logger.info(f"      Content Type: {hit.get('content_type', 'N/A')}")
         logger.info(f"      Scores: lex={hit.get('lex', 0):.4f}, vec={hit.get('vec', 0):.4f}, ce={hit.get('ce', 0):.4f}")
-        logger.info(f"      Text preview: {hit.get('text', '')[:100]}...")
-    if len(hits) > 5:
-        logger.info(f"  ... and {len(hits) - 5} more chunks")
+        # Show more text preview (200 chars) to understand what was retrieved
+        text_preview = hit.get('text', '')[:200] if hit.get('text') else 'N/A'
+        logger.info(f"      Text preview: {text_preview}...")
+    if len(hits) > 10:
+        logger.info(f"  ... and {len(hits) - 10} more chunks")
+    # Log page distribution to see if all pages are represented
+    pages_found = sorted(set([h.get('p0', 0) for h in hits]))
+    logger.info(f"Pages represented in retrieved chunks: {pages_found}")
     logger.info("-" * 40)
     return state
 
@@ -145,9 +149,14 @@ def synthesizer(state: State) -> State:
     logger.info(f"Using top {min(5, len(state['evidence']))} chunks for synthesis")
     
     citations = []
-    for i, h in enumerate(state["evidence"][:5], 1):
+    chunks_used = state["evidence"][:5]
+    # Log which chunks are being used for synthesis
+    logger.info("Chunks used for synthesis:")
+    for i, h in enumerate(chunks_used, 1):
+        logger.info(f"  [{i}] Pages {h['p0']}–{h['p1']}: {h.get('text', '')[:100]}...")
+    for i, h in enumerate(chunks_used, 1):
         citations.append(f"[{i}] p{h['p0']}–{h['p1']}")
-    context = "\n\n".join([f"[{i}] {h['text'][:1200]}" for i, h in enumerate(state["evidence"][:5], 1)])
+    context = "\n\n".join([f"[{i}] {h['text'][:1200]}" for i, h in enumerate(chunks_used, 1)])
     prompt = f"""Answer the question using ONLY the context.
 If insufficient evidence, say "I don't know."
 Add bracket citations like [1], [2] that map to the provided context blocks.

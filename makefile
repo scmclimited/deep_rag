@@ -7,7 +7,7 @@ FILE ?=
 Q ?=
 OUT ?= deep_rag_graph.png
 
-.PHONY: help up down logs rebuild db-up db-down ingest query query-graph infer-graph graph
+.PHONY: help up down logs rebuild db-up db-down ingest query query-graph infer-graph graph inspect
 
 help:
 	@echo ""
@@ -25,6 +25,7 @@ help:
 	@echo "make query-graph  Q='your question here'  # uses LangGraph (with conditional routing)"
 	@echo "make infer-graph  Q='your question' [FILE=path/to/file.pdf] [TITLE='Title']  # uses LangGraph"
 	@echo "make graph  OUT=deep_rag_graph.png [DOCKER=true]  # export LangGraph diagram (PNG or Mermaid fallback)"
+	@echo "make inspect [TITLE='Document Title'] [DOC_ID=uuid] [DOCKER=true]  # inspect stored chunks and pages for a document"
 	@echo ""
 
 # --- Root stack (API + DB) ---
@@ -159,3 +160,25 @@ graph:
 		$(PY) inference/graph/graph_viz.py --out "$(OUT)"; \
 	fi
 	@echo "Graph written to $(OUT) (or .mmd fallback if Graphviz is missing)"
+
+# --- Diagnostics ---
+# Inspect what chunks and pages are stored for a document
+# Use TITLE for document title search (partial match) or DOC_ID for exact document ID
+inspect:
+	@if [ "$(DOCKER)" = "true" ]; then \
+		if [ -n "$(DOC_ID)" ]; then \
+			docker compose exec api python -m inference.cli inspect --doc-id "$(DOC_ID)"; \
+		elif [ -n "$(TITLE)" ]; then \
+			docker compose exec api python -m inference.cli inspect --title "$(TITLE)"; \
+		else \
+			docker compose exec api python -m inference.cli inspect; \
+		fi \
+	else \
+		if [ -n "$(DOC_ID)" ]; then \
+			$(PY) inference/cli.py inspect --doc-id "$(DOC_ID)"; \
+		elif [ -n "$(TITLE)" ]; then \
+			$(PY) inference/cli.py inspect --title "$(TITLE)"; \
+		else \
+			$(PY) inference/cli.py inspect; \
+		fi \
+	fi

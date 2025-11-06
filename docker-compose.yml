@@ -48,3 +48,8 @@ services:
       DB_NAME: ${DB_NAME}
     ports:
       - "8000:8000"
+    volumes:
+      # Map logs directory from container to local filesystem
+      # This ensures logs written to /app/inference/graph/logs/ inside the container
+      # are immediately accessible at ./inference/graph/logs/ on your local machine
+      - ./inference/graph/logs:/app/inference/graph/logs

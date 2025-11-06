@@ -1,0 +1,29 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: deep_rag_pgvector
+    env_file:
+      - ../.env
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      # Use new multi-modal schema for fresh start
+      - ./schema_multimodal.sql:/docker-entrypoint-initdb.d/01_schema_multimodal.sql
+      # Keep migration script for future testing (optional)
+      - ./migration_add_multimodal.sql:/docker-entrypoint-initdb.d/02_migration_add_multimodal.sql
+      # Named volume for persistent data (remove to start fresh)
+      # Uncomment to persist data across container restarts:
+      # - deep_rag_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+# Uncomment to persist database data across container restarts:
+# volumes:
+#   deep_rag_db_data:

@@ -1,0 +1,50 @@
+# === Core AI & Embedding Models ===
+sentence-transformers==3.0.1 # optional, only needed if you want to use the sentence-transformers library
+transformers[torch]==4.42.0  # torch is optional, only needed if you want to use the torch backend
+numpy>=1.26.0                # optional, only needed if you want to use the numpy library
+open-clip-torch==2.28.0      # optional, only needed if you want to use the open-clip-torch library
+
+# === Database Layer (pgvector + Postgres) ===
+psycopg2-binary>=2.9.9       # optional, only needed if you want to use the psycopg2 library
+SQLAlchemy>=2.0.23           # optional but nice for future ORM expansion
+
+# === PDF & OCR Ingestion ===
+PyMuPDF==1.24.2              # for fitz-based text extraction
+pdfplumber==0.10.3           # optional, for structure-preserving text extraction
+pdf2image==1.17.0            # converts pages to images for OCR
+pytesseract==0.3.10          # OCR fallback for scanned PDFs
+Pillow>=10.0.0               # required by pdf2image and pytesseract
+
+# === Preprocessing & Utilities ===
+regex>=2023.12.25
+python-dotenv==1.0.1         # loads .env variables
+tqdm>=4.66.0                 # progress bars for ingestion (optional)
+requests>=2.31.0             # for any remote model pulls or optional huggingface fetches
+pydantic>=2.7.0
+
+# === API/Web Framework ===
+fastapi>=0.115.0             # FastAPI web framework
+uvicorn[standard]==0.27.1    # ASGI server for running FastAPI
+
+# === Reranking / Retrieval ===
+rank-bm25==0.2.2             # lexical fallback if you add BM25 later
+scikit-learn>=1.4.2          # used by some reranker preprocessing utilities
+
+# === Image Captioning (Optional Future Add-on) ===
+# BLIP or LLaVA captioning ready
+accelerate>=0.27.0           # optional, only needed if you want to use the accelerate backend
+
+
+# === Agentic Orchestration Ready ===
+langchain==0.2.14             # optional, only needed if you want to use the langchain library
+langgraph==0.2.26            # optional, only needed if you want to use the langgraph library
+langchain-community>=0.2.10
+openai>=1.35.0               # optional, only needed if you want to use the openai library
+ollama>=0.5.0                # optional, only needed if you want to use the ollama library
+google-genai>=1.0.0           # optional, only needed if you want to use the gemini library (new official SDK)
+typer>=0.9.0                 # optional, only needed if you want to use the typer library
+bitsandbytes>=0.42.0         # optional, only needed if you want to use the bitsandbytes library             # optional, only needed if you want to use the Pillow library
+graphviz>=0.20.3               # Python wrapper for Graphviz (used by LangGraph for visualization)
+python-multipart>=0.0.20      # optional, only needed if you want to use the python-multipart library
+# pygraphviz>=1.10             # Removed: requires system-level Graphviz libraries and not used in codebase
+                                # LangGraph uses 'graphviz' package above, which doesn't need system libs

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # LLM Provider Configuration
 # Currently using Gemini only. Other providers commented out for future use.
 # -------------------------
-gemini_model = "gemini-2.5-flash"  # or "gemini-2.5-pro" for latest, "gemini-1.5-flash" also supported
+gemini_model = "gemini-1.5-pro-latest"  # or "gemini-2.5-pro" for latest, "gemini-1.5-flash" also supported
 
 # Active provider configuration
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()  # Currently defaulting to Gemini

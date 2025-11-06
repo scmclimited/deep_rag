@@ -6,6 +6,7 @@ from typing import Union, List, Optional
 from pathlib import Path
 from PIL import Image
 import io
+import os
 from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
@@ -13,21 +14,30 @@ logger = logging.getLogger(__name__)
 # Lazy loading for CLIP model
 _clip_model = None
 
+# Model configuration
+# CLIP-ViT-L/14: 768 dimensions (upgraded from ViT-B/32 512 dims)
+# Better performance with higher dimensional representations
+# Still has 77 token limit for text (inherent to CLIP architecture)
+DEFAULT_CLIP_MODEL = os.getenv("CLIP_MODEL", "sentence-transformers/clip-ViT-L-14")
+EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))  # 768 for ViT-L/14, 512 for ViT-B/32
+
 def get_clip_model():
     """Lazy load CLIP model for multi-modal embeddings."""
     global _clip_model
     if _clip_model is None:
         try:
-            
             # CLIP model that handles both text and images in same embedding space
-            # Using ViT-B/32 for good balance of quality and speed
-            _clip_model = SentenceTransformer('sentence-transformers/clip-ViT-B-32')
-            logger.info("Loaded CLIP multi-modal embedding model (ViT-B/32)")
+            # Default: ViT-L/14 (768 dims) for better quality
+            # Alternative: ViT-B/32 (512 dims) for faster performance
+            # Can be configured via CLIP_MODEL environment variable
+            _clip_model = SentenceTransformer(DEFAULT_CLIP_MODEL)
+            logger.info(f"Loaded CLIP multi-modal embedding model ({DEFAULT_CLIP_MODEL}, {EMBEDDING_DIM} dims)")
         except Exception as e:
             logger.error(f"Failed to load CLIP model: {e}")
             raise ImportError(
                 f"CLIP model not available: {e}\n"
-                "Install with: pip install sentence-transformers"
+                "Install with: pip install sentence-transformers\n"
+                f"Failed model: {DEFAULT_CLIP_MODEL}"
             ) from e
     return _clip_model
 
@@ -283,6 +293,7 @@ def embed_batch(
     
     return np.array(embeddings)
 
-# Embedding dimensions for CLIP-ViT-B/32
-EMBEDDING_DIM = 512
+# Embedding dimensions - configured at top of file based on model selection
+# CLIP-ViT-L/14: 768 dims (default)
+# CLIP-ViT-B/32: 512 dims (legacy)
 

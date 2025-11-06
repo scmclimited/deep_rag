@@ -1,0 +1,12 @@
+# Logs Directory
+# 
+# This directory contains agent reasoning logs for:
+# - Query analysis and tracking
+# - Reasoning step documentation
+# - Future SFT model training
+# - Presentation materials
+#
+# Log files are automatically generated with timestamps:
+# - agent_log_YYYYMMDD_HHMMSS.csv (structured data for training)
+# - agent_log_YYYYMMDD_HHMMSS.txt (human-readable for presentations)
+

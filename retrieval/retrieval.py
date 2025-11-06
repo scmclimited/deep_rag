@@ -10,6 +10,7 @@ from PIL import Image
 load_dotenv()
 
 # Use unified multi-modal embedding system (CLIP)
+# EMBEDDING_DIM is configured in embeddings.py based on model selection
 from ingestion.embeddings import embed_text, embed_image, embed_multi_modal, normalize, EMBEDDING_DIM
 
 # Setup logging
@@ -33,14 +34,17 @@ def connect():
         dbname=os.getenv("DB_NAME")
     )
 
-# Updated SQL to handle multi-modal embeddings (512 dims for CLIP)
+# Updated SQL to handle multi-modal embeddings
+# Dimension is configurable: 768 dims for CLIP-ViT-L/14, 512 for CLIP-ViT-B/32
 # Also includes content_type and image_path fields
-HYBRID_SQL = """
+# Note: SQL query is built dynamically to support different embedding dimensions
+def get_hybrid_sql(embedding_dim: int) -> str:
+    return f"""
 WITH
 q AS (
   SELECT
     to_tsvector('simple', unaccent(%(q)s))      AS qvec,
-    %(emb)s::vector(512)                        AS qemb
+    %(emb)s::vector({embedding_dim})             AS qemb
 ),
 lex AS (
   SELECT c.chunk_id, c.doc_id, c.text, c.page_start, c.page_end, 
@@ -70,6 +74,9 @@ SELECT chunk_id, doc_id, text, page_start, page_end, content_type, image_path, l
 ORDER BY (0.6*lex_score + 0.4*vec_score) DESC
 LIMIT %(k)s;
 """
+
+# Static SQL for backward compatibility - uses configured EMBEDDING_DIM
+HYBRID_SQL = get_hybrid_sql(EMBEDDING_DIM)
 
 def sanitize_query_for_tsquery(query: str) -> str:
     """
@@ -158,9 +165,9 @@ def retrieve_hybrid(
     else:
         qemb_list = [float(x) for x in qemb]
     
-    # Ensure we have exactly 512 dimensions
-    if len(qemb_list) != 512:
-        raise ValueError(f"Expected embedding dimension 512, got {len(qemb_list)}")
+    # Ensure we have the expected number of dimensions
+    if len(qemb_list) != EMBEDDING_DIM:
+        raise ValueError(f"Expected embedding dimension {EMBEDDING_DIM}, got {len(qemb_list)}")
     
     # Sanitize query for tsquery to prevent syntax errors from special characters
     # This is especially important for LLM-generated refinement queries

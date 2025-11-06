@@ -1,0 +1,59 @@
+# === Core AI & Embedding Models ===
+sentence-transformers==3.0.1  # Required: CLIP embeddings for multi-modal support
+open-clip-torch==2.28.0       # Required: CLIP model support
+numpy>=1.26.0                 # Required: Vector operations
+transformers[torch]==4.42.0   # Required: Sentence transformers dependency
+torch>=2.0.0                  # Required: PyTorch backend for transformers
+
+# === Database Layer (pgvector + Postgres) ===
+psycopg2-binary>=2.9.9        # Required: PostgreSQL adapter with pgvector support
+
+# === PDF & OCR Ingestion ===
+PyMuPDF==1.24.2               # Required: PDF text extraction (fitz)
+pdf2image==1.17.0             # Required: PDF to image conversion for OCR
+pytesseract==0.3.10           # Required: OCR fallback for scanned PDFs
+Pillow>=10.0.0                # Required: Image processing for pdf2image and pytesseract
+
+# === Preprocessing & Utilities ===
+regex>=2023.12.25             # Required: Text processing
+python-dotenv==1.0.1          # Required: .env file loading
+# requests>=2.31.0            # Future: HTTP requests (used by Ollama, future providers - commented out)
+pydantic>=2.7.0               # Required: FastAPI data validation
+
+# === API/Web Framework ===
+fastapi>=0.115.0              # Required: FastAPI web framework
+uvicorn[standard]==0.27.1     # Required: ASGI server for FastAPI
+python-multipart>=0.0.20      # Required: File upload support for FastAPI
+
+# === Reranking / Retrieval ===
+scikit-learn>=1.4.2           # Required: Cross-encoder reranker dependencies
+
+# === Agentic Orchestration ===
+langgraph==0.2.26             # Required: LangGraph for agentic pipeline
+langchain-community>=0.2.10   # Required: LangGraph dependencies
+
+# === LLM Provider (Currently using Gemini) ===
+google-genai>=1.0.0           # Required: Google Gemini SDK (currently active)
+
+# === CLI Interface ===
+typer>=0.9.0                  # Required: CLI interface framework
+
+# === Graph Visualization ===
+graphviz>=0.20.3              # Required: Python wrapper for Graphviz (used by LangGraph)
+# Note: System-level Graphviz must be installed separately:
+#   Ubuntu/Debian: sudo apt-get install graphviz
+#   macOS: brew install graphviz
+
+# === Future LLM Providers (Commented out - currently using Gemini only) ===
+# openai>=1.35.0              # Future: OpenAI provider (commented out)
+# ollama>=0.5.0               # Future: Ollama provider (commented out)
+# transformers[torch] already includes LLaVA support if needed
+
+# === Optional / Unused (Commented out to reduce image build time) ===
+# pdfplumber==0.10.3          # Optional: Alternative PDF parser (not currently used)
+# SQLAlchemy>=2.0.23          # Optional: ORM layer (not currently used)
+# tqdm>=4.66.0                # Optional: Progress bars (not currently used)
+# rank-bm25==0.2.2            # Optional: BM25 lexical search (using pg_trgm instead)
+# accelerate>=0.27.0          # Optional: Model acceleration (not currently needed)
+# bitsandbytes>=0.42.0        # Optional: Quantization (not currently needed)
+# langchain==0.2.14           # Optional: LangChain (not directly used, only langgraph)

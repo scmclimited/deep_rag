@@ -1,0 +1,10 @@
+[project]
+name = "deep-rag"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "typer>=0.12.3",
+]
+
+[project.scripts]
+deep-rag = "inference.cli:app"

@@ -50,16 +50,22 @@ def ingest(
 
 @app.command()
 def query(
-    question: str = typer.Argument(..., help="The question to ask against ingested documents")
+    question: str = typer.Argument(..., help="The question to ask against ingested documents"),
+    doc_id: Optional[str] = typer.Option(None, "--doc-id", "-d", help="Optional document ID (UUID) to filter retrieval to a specific document")
 ):
     """
     Query existing documents in the vector database.
     Assumes documents have already been ingested.
     
+    If --doc-id is provided, retrieval is filtered to that specific document.
+    If --doc-id is not provided, retrieval searches across all documents.
+    
     Matches: POST /ask endpoint
     """
     try:
-        answer = run_deep_rag(question)
+        if doc_id:
+            typer.echo(f"🔍 Querying with document filter: {doc_id[:8]}...")
+        answer = run_deep_rag(question, doc_id=doc_id)
         typer.echo("\n" + "="*80)
         typer.echo("Answer:")
         typer.echo("="*80)
@@ -80,6 +86,7 @@ def infer(
     
     If --file is provided:
     - Ingest the file (PDF, TXT, PNG, JPEG)
+    - Wait for chunks to be available in the database
     - Then query using the question
     
     If no --file:
@@ -89,6 +96,7 @@ def infer(
     """
     try:
         # If file provided, ingest it first
+        doc_id = None
         if file:
             file_path = Path(file)
             if not file_path.exists():
@@ -99,20 +107,36 @@ def infer(
             typer.echo(f"📄 Ingesting file: {file_path.name}...")
             
             if file_ext == '.pdf':
-                ingest_pdf(str(file_path), title=title)
+                doc_id = ingest_pdf(str(file_path), title=title)
             elif file_ext == '.txt':
-                ingest_text_file(str(file_path), title=title or file_path.stem)
+                doc_id = ingest_text_file(str(file_path), title=title or file_path.stem)
             elif file_ext in ['.png', '.jpg', '.jpeg']:
-                ingest_image(str(file_path), title=title or file_path.stem)
+                doc_id = ingest_image(str(file_path), title=title or file_path.stem)
             else:
                 typer.echo(f"Error: Unsupported file type: {file_ext}. Supported: PDF, TXT, PNG, JPEG", err=True)
                 raise typer.Exit(1)
             
-            typer.echo(f"✅ Ingested: {file_path.name}")
+            if doc_id:
+                typer.echo(f"✅ Ingested: {file_path.name}")
+                typer.echo(f"📋 Document ID: {doc_id}")
+                
+                # Wait for chunks to be available before querying
+                from retrieval.retrieval import wait_for_chunks
+                typer.echo(f"⏳ Waiting for chunks to be available for document {doc_id[:8]}...")
+                try:
+                    chunk_count = wait_for_chunks(doc_id, expected_count=None, max_wait_seconds=30)
+                    typer.echo(f"✅ Found {chunk_count} chunks, ready to query")
+                    typer.echo(f"🔍 Starting query with document filter: {doc_id[:8]}...")
+                except TimeoutError as e:
+                    typer.echo(f"⚠️  Warning: {e}", err=True)
+                    typer.echo("Proceeding with query anyway, but results may be incomplete", err=True)
+            else:
+                typer.echo(f"⚠️  Warning: Ingestion completed but no document ID returned", err=True)
+                raise typer.Exit(1)
         
-        # Run the query
+        # Run the query with doc_id filter if available
         typer.echo(f"🔍 Querying: {question}")
-        answer = run_deep_rag(question)
+        answer = run_deep_rag(question, doc_id=doc_id)
         
         typer.echo("\n" + "="*80)
         typer.echo("Answer:")
@@ -148,7 +172,8 @@ def health():
 @app.command()
 def query_graph(
     question: str = typer.Argument(..., help="The question to ask against ingested documents (uses LangGraph)"),
-    thread_id: str = typer.Option("default", "--thread-id", help="Thread ID for conversation state")
+    thread_id: str = typer.Option("default", "--thread-id", help="Thread ID for conversation state"),
+    doc_id: Optional[str] = typer.Option(None, "--doc-id", "-d", help="Optional document ID (UUID) to filter retrieval to a specific document")
 ):
     """
     Query existing documents using LangGraph pipeline with conditional routing.
@@ -156,10 +181,15 @@ def query_graph(
     The graph allows agents to decide if they have sufficient evidence
     or need to iterate over query refinement and refine_retrieve options.
     
-    Matches: POST /ask endpoint (with LangGraph)
+    If --doc-id is provided, retrieval is filtered to that specific document.
+    If --doc-id is not provided, retrieval searches across all documents.
+    
+    Matches: POST /ask-graph endpoint
     """
     try:
-        answer = ask_with_graph(question, thread_id=thread_id)
+        if doc_id:
+            typer.echo(f"🔍 Querying with document filter: {doc_id[:8]}...")
+        answer = ask_with_graph(question, thread_id=thread_id, doc_id=doc_id)
         typer.echo("\n" + "="*80)
         typer.echo("Answer:")
         typer.echo("="*80)
@@ -181,6 +211,7 @@ def infer_graph(
     
     If --file is provided:
     - Ingest the file (PDF, TXT, PNG, JPEG)
+    - Wait for chunks to be available in the database
     - Then query using the question with LangGraph
     
     If no --file:
@@ -190,6 +221,7 @@ def infer_graph(
     """
     try:
         # If file provided, ingest it first
+        doc_id = None
         if file:
             file_path = Path(file)
             if not file_path.exists():
@@ -200,20 +232,36 @@ def infer_graph(
             typer.echo(f"📄 Ingesting file: {file_path.name}...")
             
             if file_ext == '.pdf':
-                ingest_pdf(str(file_path), title=title)
+                doc_id = ingest_pdf(str(file_path), title=title)
             elif file_ext == '.txt':
-                ingest_text_file(str(file_path), title=title or file_path.stem)
+                doc_id = ingest_text_file(str(file_path), title=title or file_path.stem)
             elif file_ext in ['.png', '.jpg', '.jpeg']:
-                ingest_image(str(file_path), title=title or file_path.stem)
+                doc_id = ingest_image(str(file_path), title=title or file_path.stem)
             else:
                 typer.echo(f"Error: Unsupported file type: {file_ext}. Supported: PDF, TXT, PNG, JPEG", err=True)
                 raise typer.Exit(1)
             
-            typer.echo(f"✅ Ingested: {file_path.name}")
+            if doc_id:
+                typer.echo(f"✅ Ingested: {file_path.name}")
+                typer.echo(f"📋 Document ID: {doc_id}")
+                
+                # Wait for chunks to be available before querying
+                from retrieval.retrieval import wait_for_chunks
+                typer.echo(f"⏳ Waiting for chunks to be available for document {doc_id[:8]}...")
+                try:
+                    chunk_count = wait_for_chunks(doc_id, expected_count=None, max_wait_seconds=30)
+                    typer.echo(f"✅ Found {chunk_count} chunks, ready to query")
+                    typer.echo(f"🔍 Starting query with document filter: {doc_id[:8]}...")
+                except TimeoutError as e:
+                    typer.echo(f"⚠️  Warning: {e}", err=True)
+                    typer.echo("Proceeding with query anyway, but results may be incomplete", err=True)
+            else:
+                typer.echo(f"⚠️  Warning: Ingestion completed but no document ID returned", err=True)
+                raise typer.Exit(1)
         
-        # Run the query with LangGraph
+        # Run the query with LangGraph, passing doc_id for document-specific retrieval
         typer.echo(f"🔍 Querying with LangGraph: {question}")
-        answer = ask_with_graph(question, thread_id=thread_id)
+        answer = ask_with_graph(question, thread_id=thread_id, doc_id=doc_id)
         
         typer.echo("\n" + "="*80)
         typer.echo("Answer:")

@@ -20,6 +20,7 @@ app = FastAPI(title="Deep RAG API", version="0.1.0")
 
 class AskBody(BaseModel):
     question: str
+    doc_id: Optional[str] = None  # Optional document ID to filter retrieval to a specific document
 
 class InferBody(BaseModel):
     question: str
@@ -28,6 +29,7 @@ class InferBody(BaseModel):
 class AskGraphBody(BaseModel):
     question: str
     thread_id: Optional[str] = "default"
+    doc_id: Optional[str] = None  # Optional document ID to filter retrieval to a specific document
 
 @app.get("/health")
 def health():
@@ -39,10 +41,15 @@ def ask(body: AskBody):
     Query existing documents in the vector database using direct pipeline.
     Assumes documents have already been ingested.
     Uses agent_loop.py (direct pipeline without LangGraph).
+    
+    If doc_id is provided, retrieval is filtered to that specific document.
+    If doc_id is not provided, retrieval searches across all documents.
     """
     try:
-        answer = run_deep_rag(body.question)
-        return {"answer": answer, "mode": "query_only", "pipeline": "direct"}
+        if body.doc_id:
+            logger.info(f"Querying with document filter: {body.doc_id[:8]}...")
+        answer = run_deep_rag(body.question, doc_id=body.doc_id)
+        return {"answer": answer, "mode": "query_only", "pipeline": "direct", "doc_id": body.doc_id}
     except Exception as e:
         logger.error(f"Error in /ask: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -71,14 +78,20 @@ def ask_graph(body: AskGraphBody):
     
     The graph allows agents to decide if they have sufficient evidence
     or need to iterate over query refinement and refine_retrieve options.
+    
+    If doc_id is provided, retrieval is filtered to that specific document.
+    If doc_id is not provided, retrieval searches across all documents.
     """
     try:
-        answer = ask_with_graph(body.question, thread_id=body.thread_id)
+        if body.doc_id:
+            logger.info(f"Querying with document filter: {body.doc_id[:8]}...")
+        answer = ask_with_graph(body.question, thread_id=body.thread_id, doc_id=body.doc_id)
         return {
             "answer": answer,
             "mode": "query_only",
             "pipeline": "langgraph",
-            "thread_id": body.thread_id
+            "thread_id": body.thread_id,
+            "doc_id": body.doc_id
         }
     except Exception as e:
         logger.error(f"Error in /ask-graph: {e}", exc_info=True)
@@ -129,18 +142,22 @@ async def infer(
             tmp_path = tmp_file.name
         
         try:
+            doc_id = None
             # Process based on file type
             if file_ext in ['.pdf'] or 'pdf' in content_type:
-                ingest_pdf(tmp_path, title=title)
-                logger.info(f"Ingested PDF: {attachment.filename}")
+                doc_id = ingest_pdf(tmp_path, title=title)
+                logger.info(f"✅ Ingested PDF: {attachment.filename}")
+                logger.info(f"📋 Document ID: {doc_id}")
                 
             elif file_ext in ['.txt'] or 'text/plain' in content_type:
-                ingest_text_file(tmp_path, title=title or attachment.filename)
-                logger.info(f"Ingested text file: {attachment.filename}")
+                doc_id = ingest_text_file(tmp_path, title=title or attachment.filename)
+                logger.info(f"✅ Ingested text file: {attachment.filename}")
+                logger.info(f"📋 Document ID: {doc_id}")
                 
             elif file_ext in ['.png', '.jpg', '.jpeg'] or 'image' in content_type:
-                ingest_image(tmp_path, title=title or attachment.filename)
-                logger.info(f"Ingested image: {attachment.filename}")
+                doc_id = ingest_image(tmp_path, title=title or attachment.filename)
+                logger.info(f"✅ Ingested image: {attachment.filename}")
+                logger.info(f"📋 Document ID: {doc_id}")
                 
             else:
                 raise HTTPException(
@@ -148,8 +165,18 @@ async def infer(
                     detail=f"Unsupported file type: {file_ext}. Supported: PDF, TXT, PNG, JPEG"
                 )
             
-            # After ingestion, run the query
-            answer = run_deep_rag(question)
+            # Wait for chunks to be available before querying
+            if doc_id:
+                from retrieval.retrieval import wait_for_chunks
+                logger.info(f"Waiting for chunks for document {doc_id}...")
+                try:
+                    chunk_count = wait_for_chunks(doc_id, max_wait_seconds=30)
+                    logger.info(f"Found {chunk_count} chunks, ready to query")
+                except TimeoutError as e:
+                    logger.warning(f"Timeout waiting for chunks: {e}. Proceeding anyway.")
+            
+            # After ingestion, run the query with doc_id filter for document-specific retrieval
+            answer = run_deep_rag(question, doc_id=doc_id)
             
             return {
                 "answer": answer,
@@ -195,6 +222,7 @@ async def infer_graph(
     """
     file_ext = None
     content_type = None
+    doc_id = None  # Initialize doc_id outside the attachment block
     
     try:
         # Process attachment if provided
@@ -211,29 +239,42 @@ async def infer_graph(
             try:
                 # Process based on file type
                 if file_ext in ['.pdf'] or 'pdf' in content_type:
-                    ingest_pdf(tmp_path, title=title)
-                    logger.info(f"Ingested PDF: {attachment.filename}")
+                    doc_id = ingest_pdf(tmp_path, title=title)
+                    logger.info(f"✅ Ingested PDF: {attachment.filename}")
+                    logger.info(f"📋 Document ID: {doc_id}")
                     
                 elif file_ext in ['.txt'] or 'text/plain' in content_type:
-                    ingest_text_file(tmp_path, title=title or attachment.filename)
-                    logger.info(f"Ingested text file: {attachment.filename}")
+                    doc_id = ingest_text_file(tmp_path, title=title or attachment.filename)
+                    logger.info(f"✅ Ingested text file: {attachment.filename}")
+                    logger.info(f"📋 Document ID: {doc_id}")
                     
                 elif file_ext in ['.png', '.jpg', '.jpeg'] or 'image' in content_type:
-                    ingest_image(tmp_path, title=title or attachment.filename)
-                    logger.info(f"Ingested image: {attachment.filename}")
+                    doc_id = ingest_image(tmp_path, title=title or attachment.filename)
+                    logger.info(f"✅ Ingested image: {attachment.filename}")
+                    logger.info(f"📋 Document ID: {doc_id}")
                     
                 else:
                     raise HTTPException(
                         status_code=400,
                         detail=f"Unsupported file type: {file_ext}. Supported: PDF, TXT, PNG, JPEG"
                     )
+                
+                # Wait for chunks to be available before querying
+                if doc_id:
+                    from retrieval.retrieval import wait_for_chunks
+                    logger.info(f"Waiting for chunks for document {doc_id}...")
+                    try:
+                        chunk_count = wait_for_chunks(doc_id, max_wait_seconds=30)
+                        logger.info(f"Found {chunk_count} chunks, ready to query")
+                    except TimeoutError as e:
+                        logger.warning(f"Timeout waiting for chunks: {e}. Proceeding anyway.")
             finally:
                 # Clean up temp file
                 if os.path.exists(tmp_path):
                     os.unlink(tmp_path)
         
-        # Run the query with LangGraph
-        answer = ask_with_graph(question, thread_id=thread_id)
+        # Run the query with LangGraph, passing doc_id for document-specific retrieval
+        answer = ask_with_graph(question, thread_id=thread_id, doc_id=doc_id)
         
         return {
             "answer": answer,

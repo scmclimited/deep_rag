@@ -34,11 +34,88 @@ def connect():
         dbname=os.getenv("DB_NAME")
     )
 
+def wait_for_chunks(doc_id: str, expected_count: Optional[int] = None, max_wait_seconds: int = 30, poll_interval: float = 0.5):
+    """
+    Wait for chunks to be available for a document ID after ingestion.
+    
+    This ensures that embeddings are complete and chunks are inserted into the database
+    before starting query operations.
+    
+    Args:
+        doc_id: Document ID to check
+        expected_count: Expected number of chunks (optional, for validation)
+        max_wait_seconds: Maximum time to wait in seconds
+        poll_interval: Time between checks in seconds
+        
+    Returns:
+        int: Number of chunks found
+        
+    Raises:
+        TimeoutError: If chunks are not available within max_wait_seconds
+    """
+    import time
+    
+    start_time = time.time()
+    logger.info(f"Waiting for chunks for document {doc_id}...")
+    
+    while time.time() - start_time < max_wait_seconds:
+        try:
+            with connect() as conn, conn.cursor() as cur:
+                cur.execute("""
+                    SELECT COUNT(*) 
+                    FROM chunks 
+                    WHERE doc_id = %s
+                """, (doc_id,))
+                count = cur.fetchone()[0]
+                
+                if count > 0:
+                    if expected_count is None or count >= expected_count:
+                        elapsed = time.time() - start_time
+                        logger.info(f"Found {count} chunks for document {doc_id} after {elapsed:.2f} seconds")
+                        return count
+                    else:
+                        logger.debug(f"Found {count} chunks, waiting for {expected_count}...")
+                
+        except Exception as e:
+            logger.warning(f"Error checking chunks for document {doc_id}: {e}")
+        
+        time.sleep(poll_interval)
+    
+    # Final check
+    try:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) 
+                FROM chunks 
+                WHERE doc_id = %s
+            """, (doc_id,))
+            count = cur.fetchone()[0]
+            if count > 0:
+                logger.warning(f"Found {count} chunks after timeout, proceeding anyway")
+                return count
+    except Exception as e:
+        logger.error(f"Error in final chunk check: {e}")
+    
+    raise TimeoutError(f"Chunks not available for document {doc_id} after {max_wait_seconds} seconds")
+
 # Updated SQL to handle multi-modal embeddings
 # Dimension is configurable: 768 dims for CLIP-ViT-L/14, 512 for CLIP-ViT-B/32
 # Also includes content_type and image_path fields
 # Note: SQL query is built dynamically to support different embedding dimensions
-def get_hybrid_sql(embedding_dim: int) -> str:
+def get_hybrid_sql(embedding_dim: int, doc_id: Optional[str] = None) -> str:
+    """
+    Generate hybrid SQL query with optional doc_id filtering.
+    
+    Args:
+        embedding_dim: Embedding dimension (768 for CLIP-ViT-L/14, 512 for CLIP-ViT-B/32)
+        doc_id: Optional document ID to filter chunks to a specific document
+        
+    Returns:
+        SQL query string with optional doc_id filter
+    """
+    # Add doc_id filter if provided
+    doc_filter = "AND c.doc_id = %(doc_id)s" if doc_id else ""
+    
     return f"""
 WITH
 q AS (
@@ -53,6 +130,7 @@ lex AS (
          0::float AS vec_score
   FROM chunks c
   WHERE c.lex @@ to_tsquery('simple', regexp_replace(%(q_ts)s, '\s+', ' & ', 'g'))
+    {doc_filter}
   ORDER BY lex_score DESC
   LIMIT %(k_lex)s
 ),
@@ -62,6 +140,7 @@ vec AS (
          0::float AS lex_score,
          1 - (c.emb <=> (SELECT qemb FROM q)) AS vec_score
   FROM chunks c
+  WHERE 1=1 {doc_filter}
   ORDER BY c.emb <=> (SELECT qemb FROM q)
   LIMIT %(k_vec)s
 ),
@@ -74,9 +153,6 @@ SELECT chunk_id, doc_id, text, page_start, page_end, content_type, image_path, l
 ORDER BY (0.6*lex_score + 0.4*vec_score) DESC
 LIMIT %(k)s;
 """
-
-# Static SQL for backward compatibility - uses configured EMBEDDING_DIM
-HYBRID_SQL = get_hybrid_sql(EMBEDDING_DIM)
 
 def sanitize_query_for_tsquery(query: str) -> str:
     """
@@ -136,10 +212,11 @@ def retrieve_hybrid(
     k=8, 
     k_lex=40, 
     k_vec=40,
-    query_image: Optional[Union[str, Image.Image]] = None
+    query_image: Optional[Union[str, Image.Image]] = None,
+    doc_id: Optional[str] = None
 ):
     """
-    Hybrid retrieval with multi-modal support.
+    Hybrid retrieval with multi-modal support and optional document filtering.
     
     Args:
         query: Text query string
@@ -147,6 +224,7 @@ def retrieve_hybrid(
         k_lex: Number of lexical results to retrieve
         k_vec: Number of vector results to retrieve
         query_image: Optional image to combine with text query for multi-modal search
+        doc_id: Optional document ID to filter chunks to a specific document
         
     Returns:
         List of retrieved chunks with scores
@@ -177,16 +255,27 @@ def retrieve_hybrid(
     if sanitized_query != query:
         logger.debug(f"Query sanitized: '{query}' -> '{sanitized_query}'")
     
+    # Generate SQL with optional doc_id filter
+    hybrid_sql = get_hybrid_sql(EMBEDDING_DIM, doc_id=doc_id)
+    
+    # Log document filtering if applicable
+    if doc_id:
+        logger.info(f"Filtering retrieval to document {doc_id[:8]}...")
+    
     with connect() as conn, conn.cursor() as cur:
         try:
-            cur.execute(HYBRID_SQL, {
+            params = {
                 "q": query,  # Keep original for embedding/vector search
                 "q_ts": sanitized_query,  # Use sanitized for tsquery
                 "emb": qemb_list,
                 "k": k_lex + k_vec,
                 "k_lex": k_lex,
                 "k_vec": k_vec
-            })
+            }
+            if doc_id:
+                params["doc_id"] = doc_id
+            
+            cur.execute(hybrid_sql, params)
             rows = cur.fetchall()
         except Exception as e:
             logger.error(f"SQL query failed: {e}", exc_info=True)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypedDict, List, Dict, Any
+from typing import TypedDict, List, Dict, Any, Optional
 import logging
 
 from langgraph.graph import StateGraph, END  # type: ignore[import-untyped]
@@ -33,6 +33,7 @@ class GraphState(TypedDict, total=False):
     confidence: float
     iterations: int
     refinements: List[str]
+    doc_id: Optional[str]  # Optional document ID for document-specific retrieval
 
 MAX_ITERS = 3
 THRESH = 0.30   # matches your CE/lex+vec heuristic
@@ -43,10 +44,18 @@ def node_planner(state: GraphState) -> GraphState:
     logger.info("GRAPH NODE: Planner - Decomposing question into sub-goals")
     logger.info("-" * 40)
     logger.info(f"Question: {state['question']}")
+    doc_id = state.get('doc_id')
+    if doc_id:
+        logger.info(f"Planning for specific document: {doc_id[:8]}...")
+    
+    # Include doc_id context in prompt if available
+    doc_context = ""
+    if doc_id:
+        doc_context = f"\n\nNote: This question is about a specific document that was just ingested. Focus your planning on this document's content."
     
     prompt = f"""You are a planner. Decompose the user's question into 1-3 concrete sub-goals
-that can be answered ONLY from the provided PDFs or assets. Prefer explicit nouns and constraints.
-Question: {state['question']}"""
+that can be answered ONLY from the provided assets such as PDFs, images, or other documents. Prefer explicit nouns and constraints.
+Question: {state['question']}{doc_context}"""
     plan = call_llm("You plan tasks.", [{"role": "user", "content": prompt}], max_tokens=200, temperature=0.2)
     plan_text = plan.strip()
     
@@ -69,10 +78,13 @@ def node_retriever(state: GraphState) -> GraphState:
     logger.info("GRAPH NODE: Retriever - Fetching relevant chunks")
     logger.info("-" * 40)
     q = f"{state['question']}  {state.get('plan','')}"
+    doc_id = state.get('doc_id')
     logger.info(f"Query: {q}")
+    if doc_id:
+        logger.info(f"Filtering to document: {doc_id[:8]}...")
     logger.info(f"Retrieval parameters: k=8, k_lex=40, k_vec=40")
     
-    hits = retrieve_hybrid(q, k=8, k_lex=40, k_vec=40)
+    hits = retrieve_hybrid(q, k=8, k_lex=40, k_vec=40, doc_id=doc_id)
     # Merge with any prior evidence (e.g., from refinement loops)
     seen, merged = set(), []
     for h in (state.get("evidence", []) + hits):
@@ -239,10 +251,11 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
         return {}
     
     logger.info(f"Refinement queries: {refinements}")
+    doc_id = state.get('doc_id')
     hits_all: List[Dict[str, Any]] = []
     for rq in refinements:
         logger.info(f"Retrieving for: {rq}")
-        hits = retrieve_hybrid(rq, k=6, k_lex=30, k_vec=30)
+        hits = retrieve_hybrid(rq, k=6, k_lex=30, k_vec=30, doc_id=doc_id)
         hits_all.extend(hits)
         
         # Log each refinement query
@@ -296,16 +309,39 @@ def node_synthesizer(state: GraphState) -> GraphState:
     logger.info("-" * 40)
     logger.info(f"Using top {min(5, len(state.get('evidence', [])))} chunks for synthesis")
     
+    doc_id = state.get('doc_id')
+    if doc_id:
+        logger.info(f"Synthesizing answer for specific document: {doc_id[:8]}...")
+    
     ctx_evs = state.get("evidence", [])[:5]
+    
+    # Identify doc_ids from retrieved chunks if not already set
+    if not doc_id and ctx_evs:
+        doc_ids_found = set(h.get('doc_id') for h in ctx_evs if h.get('doc_id'))
+        if doc_ids_found:
+            logger.info(f"Identified {len(doc_ids_found)} document(s) from retrieved chunks: {[d[:8] for d in doc_ids_found]}")
+            # Use the most common doc_id if multiple found
+            if len(doc_ids_found) == 1:
+                doc_id = list(doc_ids_found)[0]
+                logger.info(f"Using document ID: {doc_id[:8]}...")
+    
     citations = [f"[{i}] p{h['p0']}–{h['p1']}" for i, h in enumerate(ctx_evs, 1)]
     # Log which chunks are being used for synthesis
     logger.info("Chunks used for synthesis:")
     for i, h in enumerate(ctx_evs, 1):
-        logger.info(f"  [{i}] Pages {h['p0']}–{h['p1']}: {h.get('text', '')[:100]}...")
+        chunk_doc_id = h.get('doc_id', 'N/A')
+        logger.info(f"  [{i}] Doc: {chunk_doc_id[:8] if chunk_doc_id != 'N/A' else 'N/A'}... Pages {h['p0']}–{h['p1']}: {h.get('text', '')[:100]}...")
     context = "\n\n".join([f"[{i}] {h['text'][:1200]}" for i, h in enumerate(ctx_evs, 1)])
+    
+    # Include doc_id context in prompt if available
+    doc_context = ""
+    if doc_id:
+        doc_context = f"\n\nNote: This answer is based on a specific document that was recently ingested or identified from the knowledge base. Focus your answer on this document's content."
+    
     prompt = f"""Answer the question using ONLY the context.
-If insufficient evidence, say "I don't know."
-Add bracket citations like [1], [2] that map to the provided context blocks.
+If insufficient evidence, or the result is likely not in the context, say "I don't know."
+Add bracket citations like [1], [2] that map to the provided context blocks and snippets of text used from source documents.
+Which can include exact verbatim text from source documents or image descriptions.{doc_context}
 
 Question: {state['question']}
 
@@ -316,6 +352,12 @@ Context:
     out = ans.strip()
     if citations:
         out += "\n\nSources: " + ", ".join(citations)
+    
+    # Update state with doc_id if identified
+    result = {"answer": out}
+    if doc_id:
+        result["doc_id"] = doc_id
+        logger.info(f"Answer generated for document: {doc_id[:8]}...")
     
     logger.info(f"Generated Answer:\n{out}")
     logger.info("-" * 40)
@@ -332,11 +374,12 @@ Context:
         iterations=state.get('iterations', 0),
         metadata={
             "citations": citations,
-            "answer_length": len(out)
+            "answer_length": len(out),
+            "doc_id": doc_id[:8] if doc_id else None
         }
     )
     
-    return {"answer": out}
+    return result
 
 # ---------- Conditional routing ----------
 def should_refine(state: GraphState) -> str:

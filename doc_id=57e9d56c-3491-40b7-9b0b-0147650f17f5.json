@@ -1,0 +1,47 @@
+{
+    "document": {
+        "doc_id": "57e9d56c-3491-40b7-9b0b-0147650f17f5",
+        "title": "AI Solutions Engineer technical assessment for Deep RAG langgraph pipeline",
+        "source_path": "/app/inference/samples/NYMBL - AI Engineer - Omar.pdf"
+    },
+    "statistics": {
+        "total_chunks": 2,
+        "unique_pages": 2,
+        "page_range": "1-2",
+        "avg_text_length": 613
+    },
+    "page_distribution": {
+        "1-1": {
+            "page_start": 1,
+            "page_end": 1,
+            "chunk_count": 1,
+            "total_text_length": 1087,
+            "chunks": [
+                {
+                    "chunk_id": "b477ffba...",
+                    "content_type": "pdf_text",
+                    "text_length": 1087,
+                    "text_preview": "Technical Assessment Brief: AI Engineer \nGoal: Build a tiny RAG system that ingests one PDF, converts it to clean text, splits it into \nchunks, stores chunks + embeddings in a vector store, and answer",
+                    "is_ocr": false,
+                    "is_figure": false
+                }
+            ]
+        },
+        "2-2": {
+            "page_start": 2,
+            "page_end": 2,
+            "chunk_count": 1,
+            "total_text_length": 139,
+            "chunks": [
+                {
+                    "chunk_id": "1cf4ae12...",
+                    "content_type": "pdf_text",
+                    "text_length": 139,
+                    "text_preview": "Deliverables \n●​ Source repo with instructions.​\n \n●​ 30‑minute demo covering architecture, a live query flow, and limitations/next steps.​",
+                    "is_ocr": false,
+                    "is_figure": false
+                }
+            ]
+        }
+    }
+}

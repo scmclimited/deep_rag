@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 # import torch          # For LLaVA model loading
 # from PIL import Image # For LLaVA image processing
 # import requests       # For Ollama HTTP API
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -17,13 +18,22 @@ logger = logging.getLogger(__name__)
 # LLM Provider Configuration
 # Currently using Gemini only. Other providers commented out for future use.
 # -------------------------
-gemini_model = "gemini-1.5-pro-latest"  # or "gemini-2.5-pro" for latest, "gemini-1.5-flash" also supported
+gemini_model = "gemini-2.5-flash-lite"  # or "gemini-2.5-pro" for latest, "gemini-1.5-flash" also supported
 
 # Active provider configuration
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()  # Currently defaulting to Gemini
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", gemini_model)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 DEFAULT_TEMP = float(os.getenv("LLM_TEMPERATURE", "0.2"))
+
+# Gemini client (currently active)
+_GEMINI_AVAILABLE = False
+try:
+    from google import genai
+    from google.genai import types
+    _GEMINI_AVAILABLE = True
+except Exception:
+    pass
 
 # Future providers (commented out - uncomment when needed)
 # openai_model = "gpt-4o-mini"
@@ -36,14 +46,6 @@ DEFAULT_TEMP = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 # OLLAMA_URL = os.getenv("OLLAMA_URL", "")
 # LLAVA_URL = os.getenv("LLAVA_URL", "")  # LLaVA service URL (if using service)
 
-# Gemini client (currently active)
-_GEMINI_AVAILABLE = False
-try:
-    from google import genai
-    from google.genai import types
-    _GEMINI_AVAILABLE = True
-except Exception:
-    pass
 
 # Future providers (commented out - uncomment when needed)
 # _OPENAI_AVAILABLE = False
@@ -96,7 +98,7 @@ def call_llm(
     messages: List[Dict[str, str]],
     max_tokens: int = 1024,
     temperature: Optional[float] = None,
-    retries: int = 3,
+    retries: int = 8,
     retry_backoff_sec: float = 2.0,
 ) -> str:
     """
@@ -305,9 +307,6 @@ def _gemini_chat(
     if not GEMINI_API_KEY:
         raise EnvironmentError("GEMINI_API_KEY not set in environment. Get your key from https://makersuite.google.com/app/apikey")
     
-    # Create client with API key
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    
     # Use the configured model directly - no need to check available models
     # The model name is set in .env file (GEMINI_MODEL)
     model_name = GEMINI_MODEL
@@ -344,30 +343,73 @@ def _gemini_chat(
     
     try:
         # Use the new SDK's generate_content method
-        response = client.models.generate_content(
-            model=model_path,
-            contents=user_content,
-            config=config
-        )
+        with genai.Client(
+            api_key=GEMINI_API_KEY,
+            http_options=types.HttpOptions(api_version='v1alpha')) as client:
+            response = client.models.generate_content(
+                model=model_path,
+                contents=user_content,
+                config=config
+            )
         
-        # Check if response has text
-        if hasattr(response, 'text') and response.text:
-            return response.text.strip()
-        elif hasattr(response, 'candidates') and response.candidates:
-            # Handle safety filters or other response formats
+        # Try to get text directly from response.text property first
+        # Note: response.text is a computed property that extracts from candidates[0].content.parts
+        # If parts is None (e.g., MAX_TOKENS), text might be None even if hasattr returns True
+        if hasattr(response, 'text'):
+            try:
+                text_value = response.text
+                # Check if text_value is not None and not empty
+                if text_value and str(text_value).strip():
+                    return str(text_value).strip()
+            except (AttributeError, TypeError, Exception) as e:
+                logger.debug(f"Could not access response.text: {e}")
+                pass
+        
+        # Fallback: Try to extract text from candidates structure
+        if hasattr(response, 'candidates') and response.candidates:
             candidate = response.candidates[0]
-            if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+            
+            # Check if candidate has content with parts
+            if (hasattr(candidate, 'content') and candidate.content is not None and 
+                hasattr(candidate.content, 'parts') and candidate.content.parts is not None):
                 text_parts = []
                 for part in candidate.content.parts:
-                    if hasattr(part, 'text') and part.text:
+                    if part is not None and hasattr(part, 'text') and part.text:
                         text_parts.append(part.text)
                 if text_parts:
                     return " ".join(text_parts).strip()
-        
-        raise RuntimeError(f"Gemini model {model_path} returned empty response")
+            
+            # Handle case where parts is None (e.g., MAX_TOKENS finish_reason)
+            # When parts is None, the response might still have generated text before hitting the limit
+            if hasattr(candidate, 'content') and candidate.content is not None:
+                finish_reason = getattr(candidate, 'finish_reason', None)
+                
+                # If parts is None, try alternative ways to get text
+                if getattr(candidate.content, 'parts', None) is None:
+                    logger.warning(f"Response content.parts is None. Finish reason: {finish_reason}")
+                    
+                    # Try to access text directly on content if available
+                    if hasattr(candidate.content, 'text') and candidate.content.text:
+                        return candidate.content.text.strip()
+                    
+                    # If finish_reason is MAX_TOKENS, the response was truncated
+                    # In this case, we might need to return an error or partial response
+                    if finish_reason and 'MAX_TOKENS' in str(finish_reason):
+                        raise RuntimeError(
+                            f"Gemini model {model_path} response was truncated due to MAX_TOKENS limit. "
+                            f"Consider increasing max_tokens (currently {max_tokens}). "
+                            f"Response had {getattr(response, 'usage_metadata', {}).get('total_token_count', 'unknown')} tokens."
+                        )
+
+        # Log response structure for debugging if we get here
+        logger.error(f"Unexpected response structure. Response type: {type(response)}, "
+                    f"Has text: {hasattr(response, 'text')}, "
+                    f"Text value: {getattr(response, 'text', None) if hasattr(response, 'text') else 'N/A'}, "
+                    f"Has candidates: {hasattr(response, 'candidates')}, "
+                    f"Candidates: {getattr(response, 'candidates', None)}")
+        raise RuntimeError(f"Gemini model {model_path} returned empty or unexpected response structure")
         
     except Exception as e:
-        error_str = str(e).lower()
         # Provide helpful error message
         error_msg = f"Gemini API call failed with model {model_path}: {e}\n"
         error_msg += f"Configured model: {GEMINI_MODEL}\n"

@@ -221,6 +221,5 @@ pip install sentence-transformers
 
 - [LLM Setup Guide](LLM_SETUP.md)
 - [Embedding Options Guide](EMBEDDING_OPTIONS.md)
-- [Setup Guide](SETUP_GUIDE.md)
 - [Database Reset Guide](RESET_DB.md)
 

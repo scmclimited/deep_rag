@@ -7,7 +7,7 @@ FILE ?=
 Q ?=
 OUT ?= deep_rag_graph.png
 
-.PHONY: help up down logs rebuild db-up db-down ingest query query-graph infer-graph graph inspect
+.PHONY: help up down logs rebuild db-up db-down ingest query query-graph infer-graph graph health inspect
 
 help:
 	@echo ""
@@ -27,6 +27,7 @@ help:
 	@echo "make infer  Q='your question' [FILE=path/to/file.pdf] [TITLE='Title']  # uses direct pipeline"
 	@echo "make infer-graph  Q='your question' [FILE=path/to/file.pdf] [TITLE='Title']  # uses LangGraph"
 	@echo "make graph  OUT=deep_rag_graph.png [DOCKER=true]  # export LangGraph diagram (PNG or Mermaid fallback)"
+	@echo "make health  # check API and database health status"
 	@echo "make inspect [TITLE='Document Title'] [DOC_ID=uuid] [DOCKER=true]  # inspect stored chunks and pages for a document"
 	@echo "make test [DOCKER=true]  # run all tests (unit + integration)"
 	@echo "make unit-tests [DOCKER=true]  # run unit tests only"
@@ -341,6 +342,11 @@ graph:
 		$(PY) inference/graph/graph_viz.py --out "$(OUT)"; \
 	fi
 	@echo "Graph written to $(OUT) (or .mmd fallback if Graphviz is missing)"
+
+# --- Health Check ---
+health:
+	@echo "Checking API health..."
+	@curl -s http://localhost:8000/health | python -m json.tool 2>/dev/null || curl -s http://localhost:8000/health || echo "Error: API is not running. Please run 'make up' first."
 
 # --- Diagnostics ---
 # Inspect what chunks and pages are stored for a document

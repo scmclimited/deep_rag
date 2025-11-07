@@ -26,7 +26,7 @@ def node_synthesizer(state: GraphState) -> GraphState:
     if not doc_id and ctx_evs:
         doc_ids_found = set(h.get('doc_id') for h in ctx_evs if h.get('doc_id'))
         if doc_ids_found:
-            logger.info(f"Identified {len(doc_ids_found)} document(s) from retrieved chunks: {[d + "..." for d in doc_ids_found]}")
+            logger.info(f"Identified {len(doc_ids_found)} document(s) from retrieved chunks: {[d + '...' for d in doc_ids_found]}")
             # Use the most common doc_id if multiple found
             if len(doc_ids_found) == 1:
                 doc_id = list(doc_ids_found)[0]
@@ -65,7 +65,7 @@ Context:
     doc_ids = state.get('doc_ids', [])
     if doc_ids:
         result["doc_ids"] = doc_ids
-        logger.info(f"Answer generated for {len(doc_ids)} document(s): {[d + "..." for d in doc_ids]}")
+        logger.info(f"Answer generated for {len(doc_ids)} document(s): {[d + '...' for d in doc_ids]}")
     elif doc_id:
         result["doc_id"] = doc_id
         logger.info(f"Answer generated for document: {doc_id}...")

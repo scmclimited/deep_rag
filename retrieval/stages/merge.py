@@ -20,36 +20,31 @@ def merge_and_deduplicate(primary_chunks: List[Dict], secondary_chunks: List[Dic
         Merged and deduplicated list of chunks
     """
     seen_chunk_ids = set()
-    merged = []
+    primary_merged = []
+    secondary_merged = []
     
     # First, add all primary chunks (prioritized)
     for chunk in primary_chunks:
         chunk_id = chunk.get("chunk_id")
         if chunk_id and chunk_id not in seen_chunk_ids:
             seen_chunk_ids.add(chunk_id)
-            merged.append(chunk)
+            primary_merged.append(chunk)
     
     # Then, add secondary chunks that aren't duplicates
     for chunk in secondary_chunks:
         chunk_id = chunk.get("chunk_id")
         if chunk_id and chunk_id not in seen_chunk_ids:
             seen_chunk_ids.add(chunk_id)
-            merged.append(chunk)
+            secondary_merged.append(chunk)
     
-    # Sort by combined score (prioritize primary chunks with higher scores)
-    # Primary chunks get a boost in scoring
-    for i, chunk in enumerate(merged):
-        if i < len(primary_chunks):
-            # Boost primary chunks
-            chunk["_priority_score"] = chunk.get("ce", chunk.get("vec", 0.0)) + 0.1
-        else:
-            chunk["_priority_score"] = chunk.get("ce", chunk.get("vec", 0.0))
+    # Sort primary chunks by score (descending)
+    primary_merged.sort(key=lambda x: x.get("ce", x.get("vec", 0.0)), reverse=True)
     
-    merged.sort(key=lambda x: x.get("_priority_score", 0.0), reverse=True)
+    # Sort secondary chunks by score (descending)
+    secondary_merged.sort(key=lambda x: x.get("ce", x.get("vec", 0.0)), reverse=True)
     
-    # Remove temporary priority score
-    for chunk in merged:
-        chunk.pop("_priority_score", None)
+    # Combine: primary chunks first, then secondary chunks
+    merged = primary_merged + secondary_merged
     
     logger.info(f"Merged {len(primary_chunks)} primary chunks with {len(secondary_chunks)} secondary chunks, "
                 f"result: {len(merged)} unique chunks (returning top {k})")

@@ -10,7 +10,7 @@ from retrieval.retrieval import wait_for_chunks
 class TestWaitForChunks:
     """Tests for wait_for_chunks function."""
     
-    @patch('retrieval.retrieval.connect')
+    @patch('retrieval.wait.connect')
     def test_wait_for_chunks_success(self, mock_connect):
         """Test successful chunk waiting."""
         mock_conn = MagicMock()
@@ -24,7 +24,7 @@ class TestWaitForChunks:
         result = wait_for_chunks(test_doc_id, max_wait_seconds=1)
         assert result == 5
     
-    @patch('retrieval.retrieval.connect')
+    @patch('retrieval.wait.connect')
     def test_wait_for_chunks_timeout(self, mock_connect):
         """Test timeout when chunks not found."""
         mock_conn = MagicMock()

@@ -67,7 +67,7 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
     
     # Update doc_ids in state
     if doc_ids_found:
-        logger.info(f"Found {len(doc_ids_found)} document(s) in refinement retrieval: {[d + "..." for d in doc_ids_found]}")
+        logger.info(f"Found {len(doc_ids_found)} document(s) in refinement retrieval: {[d + '...' for d in doc_ids_found]}")
     
     # Log page distribution after merge
     pages_found = sorted(set([h.get('p0', 0) for h in merged]))

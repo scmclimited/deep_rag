@@ -152,6 +152,9 @@ deep_rag/
 │   ├── ingestion_schema.sql      # Legacy schema (for reference)
 │   └── docker-compose.yml        # Stand-alone DB service (pgvector)
 │
+├── scripts/                      # Docker and deployment scripts
+│   └── entrypoint.sh             # Docker container entrypoint (runs tests on startup if enabled)
+│
 ├── md_guides/                    # Documentation guides
 │   ├── EMBEDDING_OPTIONS.md      # Embedding model options and recommendations
 │   ├── LLM_SETUP.md              # LLM provider setup guide
@@ -161,7 +164,7 @@ deep_rag/
 │   ├── ENTRY_POINTS_AND_SCENARIOS.md  # Entry point scenarios and use cases
 │   └── THREAD_TRACKING_AND_AUDIT.md   # Thread tracking and audit logging
 │
-├── .env                          # Environment variables (database, LLM, embedding configs)
+├── .env.example                  # Example environment variables (copy to .env and fill in your values)
 ├── requirements.txt              # Python dependencies
 ├── pyproject.toml                # Project metadata, dependencies, and pytest config
 ├── makefile                      # Convenience make commands for common tasks
@@ -425,46 +428,51 @@ pip install -r requirements.txt
 ```
 
 ### 4. Configure Environment
-Create a `.env` file in the project root:
+Create a `.env` file in the project root by copying the example file:
 ```bash
-# Database Configuration
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=user_here
-DB_PASS=password_here
-DB_NAME=ragdb
+# Copy the example file
+cp .env.example .env
 
-# LLM Configuration (Currently using Gemini)
-LLM_PROVIDER=gemini
-GEMINI_API_KEY=your_gemini_api_key_here
-# Recommended models (in order of preference):
-# - gemini-1.5-flash: Best balance of speed and quality, 1M token context
-# - gemini-2.0-flash: Latest model with improved reasoning
-# - gemini-2.5-flash-lite: Lightweight, faster but limited context
-GEMINI_MODEL=gemini-1.5-flash
-LLM_TEMPERATURE=0.2
-
-# Embedding Configuration (Multi-modal)
-# CLIP-ViT-L/14: 768 dimensions (recommended, better quality)
-# CLIP-ViT-B/32: 512 dimensions (faster, legacy)
-CLIP_MODEL=sentence-transformers/clip-ViT-L-14
-EMBEDDING_DIM=768
+# Then edit .env with your actual credentials and API keys
+# Never commit .env to git - it contains sensitive information
 ```
+
+The `.env.example` file contains all required environment variables with sample values. See [`md_guides/ENVIRONMENT_SETUP.md`](md_guides/ENVIRONMENT_SETUP.md) for detailed configuration options.
+
+**Required Variables:**
+- **Database**: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`
+- **LLM**: `LLM_PROVIDER`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `LLM_TEMPERATURE`
+- **Embeddings**: `CLIP_MODEL`, `EMBEDDING_DIM`
+
+**Optional Variables:**
+- **Startup Tests**: `RUN_TESTS_ON_STARTUP` (set to `true` to run database schema tests on container startup)
 
 ### 5. Start Services
 ```bash
 # Option 1: Start full stack (API + DB)
-docker compose up -d --build
+make up              # Or: docker compose up -d --build
 
-# Option 2: Start DB only (for local development)
-cd vector_db
-docker-compose up -d
+# Option 2: Start and run tests automatically
+make up-and-test     # Starts services, then runs all tests to verify setup
+
+# Option 3: Start DB only (for local development)
+make db-up           # Or: cd vector_db && docker-compose up -d
 ```
+
+**Note:** The Docker container uses an entrypoint script (`scripts/entrypoint.sh`) that:
+- Optionally runs database schema tests on startup if `RUN_TESTS_ON_STARTUP=true` is set in your `.env`
+- Starts the FastAPI server on port 8000
+- Provides health check endpoint at `/health` that verifies database connection and required tables
 
 ### 6. Verify Services
 ```bash
+# Check running containers
 docker ps
 # Should show: deep_rag_pgvector and deep_rag_api running
+
+# Check API health (verifies database connection and schema)
+curl http://localhost:8000/health
+# Should return: {"ok": true, "status": "healthy", "database": "connected", "tables": ["chunks", "documents", "thread_tracking"]}
 ```
 
 ---

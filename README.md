@@ -135,13 +135,15 @@ deep_rag/
 │   │   ├── test_retrieval_wait.py
 │   │   ├── test_retrieval_merge.py
 │   │   ├── test_llm_wrapper.py
-│   │   └── test_llm_providers_gemini.py
+│   │   ├── test_llm_providers_gemini.py
+│   │   └── test_embeddings_text.py  # Embedding model and text embedding tests
 │   └── integration/              # Integration tests
 │       ├── __init__.py
 │       ├── test_llm_providers.py
 │       ├── test_llm_providers_gemini.py
 │       ├── test_llm_providers_openai.py
-│       └── test_llm_providers_ollama.py
+│       ├── test_llm_providers_ollama.py
+│       └── test_database_schema.py  # Database schema verification tests
 │
 ├── vector_db/                    # Database schema and migrations
 │   ├── schema_multimodal.sql     # Multi-modal schema for CLIP embeddings (768 dims)
@@ -838,9 +840,11 @@ tests/
 ├── unit/                    # Unit tests for individual modules
 │   ├── test_retrieval_*.py  # Retrieval module tests
 │   ├── test_llm_*.py        # LLM provider tests
+│   ├── test_embeddings_text.py  # Embedding model and text embedding tests
 │   └── ...
 ├── integration/             # Integration tests
 │   ├── test_llm_providers_*.py  # LLM provider integration tests
+│   ├── test_database_schema.py  # Database schema verification tests
 │   └── ...
 └── conftest.py             # Pytest configuration
 ```
@@ -959,7 +963,17 @@ docker compose exec api python -m pytest tests/integration/ -v
 ### Unit Tests
 
 Unit tests cover:
-- **Retrieval modules**: `retrieval/sql/`, `retrieval/reranker/`, `retrieval/stages/`, `retrieval/sanitize.py`, `retrieval/mmr.py`, `retrieval/vector_utils.py`
+- **Retrieval modules**: `retrieval/sql/`, `retrieval/reranker/`, `retrieval/stages/`, `retrieval/sanitize.py`, `retrieval/mmr.py`, `retrieval/vector_utils.py`, `retrieval/wait.py`
+  - SQL query generation and sanitization
+  - Maximal Marginal Relevance (MMR) diversity
+  - Vector similarity calculations
+  - Two-stage retrieval merge and deduplication
+  - Chunk availability waiting logic
+- **Embedding modules**: `ingestion/embeddings/model.py`, `ingestion/embeddings/text.py`
+  - CLIP model initialization and validation
+  - Text embedding generation with tokenization
+  - Model lazy loading and caching
+  - Error handling for invalid models and missing environment variables
 - **Ingestion modules**: `ingestion/db_ops/`, `ingestion/embeddings/`, `ingestion/pdf_extract.py`, `ingestion/chunking.py`
 - **LLM wrapper**: `inference/llm/wrapper.py`
 - **Utility functions**: Helper functions, logger functions, wrapper functions
@@ -968,6 +982,14 @@ Unit tests cover:
 
 Integration tests cover:
 - **LLM Provider Integration**: Dynamic connectivity tests for OpenAI, Google Gemini, Ollama based on `.env` variables
+  - Tests automatically skip providers that are not configured
+  - Verifies API connectivity and response format
+- **Database Schema Verification**: Comprehensive tests for database initialization (`test_database_schema.py`)
+  - Verifies all three required tables exist: `documents`, `chunks`, `thread_tracking`
+  - Validates table structure (columns, data types, constraints)
+  - Checks required indexes exist for efficient retrieval
+  - Verifies multi-modal embedding support (vector type, dimensions)
+  - Tests run automatically after `make up` to ensure schema is properly initialized
 - **End-to-End Pipeline**: Full ingestion → retrieval → synthesis workflows
 - **Database Operations**: Real database interactions with test fixtures
 

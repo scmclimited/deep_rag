@@ -32,7 +32,16 @@ def node_synthesizer(state: GraphState) -> GraphState:
                 doc_id = list(doc_ids_found)[0]
                 logger.info(f"Using document ID: {doc_id}...")
     
-    citations = [f"[{i}] p{h['p0']}–{h['p1']}" for i, h in enumerate(ctx_evs, 1)]
+    # Build citations with doc_id if available
+    citations = []
+    for i, h in enumerate(ctx_evs, 1):
+        chunk_doc_id = h.get('doc_id')
+        if chunk_doc_id:
+            # Include full doc_id in citation: [1] doc:c60b6642-d489-4fff-aba7-f146c32862d8 p1-1
+            citations.append(f"[{i}] doc:{chunk_doc_id} p{h['p0']}–{h['p1']}")
+        else:
+            # Fallback to page-only citation if no doc_id
+            citations.append(f"[{i}] p{h['p0']}–{h['p1']}")
     # Log which chunks are being used for synthesis
     logger.info("Chunks used for synthesis:")
     for i, h in enumerate(ctx_evs, 1):

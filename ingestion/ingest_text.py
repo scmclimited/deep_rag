@@ -4,7 +4,6 @@ from uuid import uuid4
 from pathlib import Path
 import os
 import logging
-from psycopg2 import connect
 from dotenv import load_dotenv
 import numpy as np
 import psycopg2, psycopg2.extras as pe
@@ -20,14 +19,7 @@ def normalize(v: np.ndarray) -> np.ndarray:
     n = np.linalg.norm(v)
     return v / max(n, 1e-12)
 
-def connect():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS"),
-        dbname=os.getenv("DB_NAME")
-    )
+from retrieval.db_utils import connect
 
 def semantic_chunks_text(text: str, max_words=25, overlap=5):
     """

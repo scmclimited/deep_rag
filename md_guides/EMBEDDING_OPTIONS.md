@@ -2,143 +2,143 @@
 
 ## Current Implementation
 
-### Text Embeddings: `BAAI/bge-m3`
-- **Model**: `BAAI/bge-m3` (Beijing Academy of Artificial Intelligence)
-- **Type**: Text-only dense embeddings
-- **Dimensions**: 1024
+### Multi-Modal Embeddings: CLIP-ViT-L/14 (Recommended)
+
+Deep RAG currently uses **CLIP-ViT-L/14** (`sentence-transformers/clip-ViT-L-14`) for multi-modal embeddings, providing a unified vector space for both text and images.
+
+- **Model**: `sentence-transformers/clip-ViT-L-14`
+- **Type**: Multi-modal (text + images in same embedding space)
+- **Dimensions**: **768** (recommended for production)
 - **Runs**: Locally via `sentence-transformers`
-- **Use Case**: Excellent for text-based RAG
-- **Advantages**:
-  - ✅ No API dependencies (runs locally)
-  - ✅ Fast inference
-  - ✅ Good multilingual support
-  - ✅ High quality for text retrieval
-- **Limitations**:
-  - ❌ Text-only (cannot embed images directly)
-  - ❌ For images, we extract text via OCR only
-
-### Reranker: `BAAI/bge-reranker-base`
-- **Model**: Cross-encoder for reranking
-- **Type**: Text-only
-- **Use Case**: Reranking retrieved chunks for better precision
-
-## Current Image Handling
-
-For images (PNG, JPEG), we currently:
-1. Extract text via OCR (Tesseract)
-2. Embed the extracted text using `BAAI/bge-m3`
-3. Store text embeddings (not visual embeddings)
-
-**Limitation**: Visual content without text is not searchable.
-
-## Future: CLIP-Style Multi-Modal Embeddings
-
-### Option 1: CLIP (OpenAI)
-- **Model**: `openai/clip-vit-base-patch32` or larger variants
-- **Type**: Vision-language model (multi-modal)
-- **Runs**: Locally via `transformers` or `timm`
+- **Use Case**: Production RAG applications with multi-modal support
 - **Advantages**:
   - ✅ True multi-modal (text + images in same embedding space)
   - ✅ Can search images by text descriptions
   - ✅ Can search text by image similarity
-  - ✅ Runs locally
-- **Requirements**:
-  - Additional storage for image embeddings
-  - May need separate embedding column for images
-  - Larger model size
-
-### Option 2: OpenCLIP (Meta)
-- **Model**: `laion/CLIP-ViT-B-32` or similar
-- **Type**: Open-source CLIP variant
-- **Runs**: Locally via `open_clip`
-- **Advantages**:
-  - ✅ Open-source alternative to CLIP
-  - ✅ Multiple model sizes available
-  - ✅ Good performance
-- **Install**: `pip install open-clip-torch`
-
-### Option 3: BLIP-2 or BLIP
-- **Model**: `Salesforce/blip2-opt-2.7b` or `Salesforce/blip-image-captioning-base`
-- **Type**: Vision-language model with captioning
-- **Use Case**: Generate text descriptions from images, then embed text
-- **Advantages**:
-  - ✅ Generates rich captions for images
-  - ✅ Can use existing text embedding model on captions
+  - ✅ No API dependencies (runs locally)
+  - ✅ Better semantic representation (768 dims vs 512 dims)
+  - ✅ Production-ready performance
 - **Limitations**:
-  - Two-step process (caption → embed)
-  - Slower than direct embeddings
+  - ❌ Larger model size (~400MB vs ~150MB for ViT-B/32)
+  - ❌ Slightly slower than ViT-B/32 (but better quality)
 
-### Option 4: Sentence Transformers Multi-Modal
+### Legacy Option: CLIP-ViT-B/32 (Faster, Lower Quality)
+
+For development or resource-constrained environments, you can use **CLIP-ViT-B/32** (`sentence-transformers/clip-ViT-B-32`):
+
 - **Model**: `sentence-transformers/clip-ViT-B-32`
-- **Type**: Multi-modal via sentence-transformers
+- **Type**: Multi-modal (text + images in same embedding space)
+- **Dimensions**: **512** (legacy, faster)
 - **Runs**: Locally via `sentence-transformers`
+- **Use Case**: Development, resource-constrained environments
 - **Advantages**:
-  - ✅ Easy integration with existing codebase
-  - ✅ Same API as current `BAAI/bge-m3`
-  - ✅ Unified interface for text and images
+  - ✅ Faster inference
+  - ✅ Lower memory usage
+  - ✅ Smaller model size (~150MB)
+- **Limitations**:
+  - ❌ Lower quality semantic representation (512 dims vs 768 dims)
+  - ❌ Not recommended for production
 
-## Recommendation
+### Reranker: BAAI/bge-reranker-base
 
-### Current Setup (Text-Only)
-**Keep `BAAI/bge-m3`** - It's excellent for text-based RAG and runs locally without API dependencies.
+- **Model**: Cross-encoder for reranking
+- **Type**: Text-only
+- **Use Case**: Reranking retrieved chunks for better precision
+- **Runs**: Locally via `sentence-transformers`
 
-### For Multi-Modal Support
-**Add `sentence-transformers/clip-ViT-B-32`** as an optional image embedding model:
+## Model Comparison
 
-1. **Dual Embedding Strategy**:
-   - Text chunks: Use `BAAI/bge-m3` (current)
-   - Image chunks: Use `clip-ViT-B-32` (new)
-   - Store both in database (separate columns or unified with type indicator)
+| Property | CLIP-ViT-L/14 (Current) | CLIP-ViT-B/32 (Legacy) |
+|----------|-------------------------|------------------------|
+| **Embedding Dimensions** | **768** | 512 |
+| **Max Token Length** | 77 tokens | 77 tokens |
+| **Performance** | **Better semantic representation** | Faster, lower memory |
+| **Model Size** | ~400MB | ~150MB |
+| **Use Case** | Production, high-quality retrieval | Development, resource-constrained |
+| **Multi-Modal** | ✅ Yes | ✅ Yes |
+| **Local Execution** | ✅ Yes | ✅ Yes |
 
-2. **Implementation**:
-   ```python
-   # In ingestion/ingest_image.py
-   from sentence_transformers import SentenceTransformer
-   
-   # For images
-   clip_model = SentenceTransformer('sentence-transformers/clip-ViT-B-32')
-   image_embedding = clip_model.encode(image)
-   
-   # For text from images (OCR)
-   text_embedding = emb_model.encode(ocr_text)  # Current BAAI/bge-m3
-   ```
+## Why CLIP-ViT-L/14?
 
-3. **Database Schema** (optional enhancement):
-   ```sql
-   ALTER TABLE chunks ADD COLUMN IF NOT EXISTS img_emb vector(512);  -- CLIP embeddings
-   ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding_type TEXT DEFAULT 'text';  -- 'text' or 'image'
-   ```
+1. **Higher Dimensions (768 vs 512)**: More dimensional space = better semantic representation and retrieval accuracy
+2. **Multi-Modal**: Embeds text and images in the same vector space, enabling true multi-modal search
+3. **Open-Source & Local**: Runs entirely locally without API dependencies
+4. **pgvector Compatible**: 768 dimensions well within pgvector's 2,000 dimension limit
+5. **Production Ready**: Better performance for real-world RAG applications
 
-## Migration Path
+## Configuration
 
-1. **Phase 1** (Current): Text-only with OCR for images ✅
-2. **Phase 2** (Recommended): Add CLIP embeddings for images
-   - Install: `pip install sentence-transformers` (already installed)
-   - Add CLIP model loading
-   - Store image embeddings separately
-   - Update retrieval to handle both text and image queries
-3. **Phase 3** (Future): Unified multi-modal search
-   - Combine text and image embeddings in retrieval
-   - Support "find images like this" queries
-
-## Installation for Multi-Modal
+Set via environment variables in `.env`:
 
 ```bash
-# Already installed
+# Use CLIP-ViT-L/14 (768 dims, recommended for production)
+CLIP_MODEL=sentence-transformers/clip-ViT-L-14
+EMBEDDING_DIM=768
+
+# Or use CLIP-ViT-B/32 (512 dims, faster, legacy)
+# CLIP_MODEL=sentence-transformers/clip-ViT-B-32
+# EMBEDDING_DIM=512
+```
+
+## Migration
+
+### Upgrading from ViT-B/32 to ViT-L/14
+
+If you have an existing database with ViT-B/32 (512 dims), see `vector_db/migration_upgrade_to_768.sql` for migration steps.
+
+**Migration Steps**:
+1. Backup your database
+2. Run the migration script:
+   ```bash
+   docker compose exec db psql -U $DB_USER -d $DB_NAME -f /docker-entrypoint-initdb.d/migration_upgrade_to_768.sql
+   ```
+3. Update `.env`:
+   ```bash
+   CLIP_MODEL=sentence-transformers/clip-ViT-L-14
+   EMBEDDING_DIM=768
+   ```
+4. Re-ingest documents (old 512-dim embeddings won't work with 768-dim model)
+
+### Downgrading from ViT-L/14 to ViT-B/32
+
+If you need to downgrade (not recommended):
+
+1. Backup your database
+2. Update `.env`:
+   ```bash
+   CLIP_MODEL=sentence-transformers/clip-ViT-B-32
+   EMBEDDING_DIM=512
+   ```
+3. Re-ingest documents (old 768-dim embeddings won't work with 512-dim model)
+
+## Token Limit Handling
+
+CLIP models have a 77 token limit (inherent to architecture). Deep RAG handles this through:
+- **Intelligent Chunking**: Chunks are limited to ~25 words (≈32-37 tokens) with safe margin
+- **Token-Aware Truncation**: Uses CLIP's tokenizer for accurate truncation
+- **Fallback Handling**: Conservative word-based truncation if tokenizer unavailable
+- **Retry Logic**: Multiple truncation attempts with progressively smaller chunks
+
+## Installation
+
+```bash
+# Already installed via requirements.txt
 pip install sentence-transformers
 
-# For CLIP-style embeddings
-# (sentence-transformers includes CLIP models)
 # No additional installation needed!
-
-# Optional: For OpenCLIP
-pip install open-clip-torch
+# sentence-transformers includes CLIP models
 ```
 
 ## Summary
 
-- **Current**: `BAAI/bge-m3` is perfect for text-only RAG ✅
-- **For images**: Consider adding CLIP-style embeddings for true visual search
+- **Current**: CLIP-ViT-L/14 (768 dims) is recommended for production ✅
+- **Legacy**: CLIP-ViT-B/32 (512 dims) available for development/resource-constrained environments
+- **Multi-Modal**: Both models support text + images in unified embedding space ✅
 - **No API dependency**: All models run locally ✅
-- **Easy upgrade**: Can add CLIP alongside existing text embeddings
+- **Easy upgrade**: Migration scripts available for upgrading from 512 to 768 dims
 
+## Recommendation
+
+**For Production**: Use CLIP-ViT-L/14 (768 dims) for better semantic representation and retrieval quality.
+
+**For Development**: Use CLIP-ViT-B/32 (512 dims) if memory/speed is critical, but expect lower quality results.

@@ -1,211 +1,19 @@
-# retrieve.py
-import psycopg2, numpy as np
-import os
-import re
-from dotenv import load_dotenv
-from sentence_transformers import CrossEncoder
-from typing import Optional, Union
+"""
+Main retrieval module - Hybrid retrieval with multi-modal support.
+
+This module provides the main retrieve_hybrid function and maintains
+backward compatibility by importing from modularized submodules.
+"""
+import logging
+from typing import Optional, Union, List
 from PIL import Image
 
-load_dotenv()
+# Import from modularized submodules
+from retrieval.wait import wait_for_chunks
+from retrieval.stages import retrieve_stage_one, retrieve_stage_two, merge_and_deduplicate
 
-# Use unified multi-modal embedding system (CLIP)
-# EMBEDDING_DIM is configured in embeddings.py based on model selection
-from ingestion.embeddings import embed_text, embed_image, embed_multi_modal, normalize, EMBEDDING_DIM
-
-# Setup logging
-import logging
 logger = logging.getLogger(__name__)
 
-# Reranker for query time (text-only cross-encoder)
-RERANK_MODEL = "BAAI/bge-reranker-base"
-try:
-    reranker = CrossEncoder(RERANK_MODEL)
-except Exception as e:
-    logger.warning(f"Reranker not available: {e}. Continuing without reranking.")
-    reranker = None
-
-def connect():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS"),
-        dbname=os.getenv("DB_NAME")
-    )
-
-def wait_for_chunks(doc_id: str, expected_count: Optional[int] = None, max_wait_seconds: int = 30, poll_interval: float = 0.5):
-    """
-    Wait for chunks to be available for a document ID after ingestion.
-    
-    This ensures that embeddings are complete and chunks are inserted into the database
-    before starting query operations.
-    
-    Args:
-        doc_id: Document ID to check
-        expected_count: Expected number of chunks (optional, for validation)
-        max_wait_seconds: Maximum time to wait in seconds
-        poll_interval: Time between checks in seconds
-        
-    Returns:
-        int: Number of chunks found
-        
-    Raises:
-        TimeoutError: If chunks are not available within max_wait_seconds
-    """
-    import time
-    
-    start_time = time.time()
-    logger.info(f"Waiting for chunks for document {doc_id}...")
-    
-    while time.time() - start_time < max_wait_seconds:
-        try:
-            with connect() as conn, conn.cursor() as cur:
-                cur.execute("""
-                    SELECT COUNT(*) 
-                    FROM chunks 
-                    WHERE doc_id = %s
-                """, (doc_id,))
-                count = cur.fetchone()[0]
-                
-                if count > 0:
-                    if expected_count is None or count >= expected_count:
-                        elapsed = time.time() - start_time
-                        logger.info(f"Found {count} chunks for document {doc_id} after {elapsed:.2f} seconds")
-                        return count
-                    else:
-                        logger.debug(f"Found {count} chunks, waiting for {expected_count}...")
-                
-        except Exception as e:
-            logger.warning(f"Error checking chunks for document {doc_id}: {e}")
-        
-        time.sleep(poll_interval)
-    
-    # Final check
-    try:
-        with connect() as conn, conn.cursor() as cur:
-            cur.execute("""
-                SELECT COUNT(*) 
-                FROM chunks 
-                WHERE doc_id = %s
-            """, (doc_id,))
-            count = cur.fetchone()[0]
-            if count > 0:
-                logger.warning(f"Found {count} chunks after timeout, proceeding anyway")
-                return count
-    except Exception as e:
-        logger.error(f"Error in final chunk check: {e}")
-    
-    raise TimeoutError(f"Chunks not available for document {doc_id} after {max_wait_seconds} seconds")
-
-# Updated SQL to handle multi-modal embeddings
-# Dimension is configurable: 768 dims for CLIP-ViT-L/14, 512 for CLIP-ViT-B/32
-# Also includes content_type and image_path fields
-# Note: SQL query is built dynamically to support different embedding dimensions
-def get_hybrid_sql(embedding_dim: int, doc_id: Optional[str] = None) -> str:
-    """
-    Generate hybrid SQL query with optional doc_id filtering.
-    
-    Args:
-        embedding_dim: Embedding dimension (768 for CLIP-ViT-L/14, 512 for CLIP-ViT-B/32)
-        doc_id: Optional document ID to filter chunks to a specific document
-        
-    Returns:
-        SQL query string with optional doc_id filter
-    """
-    # Add doc_id filter if provided
-    doc_filter = "AND c.doc_id = %(doc_id)s" if doc_id else ""
-    
-    return f"""
-WITH
-q AS (
-  SELECT
-    to_tsvector('simple', unaccent(%(q)s))      AS qvec,
-    %(emb)s::vector({embedding_dim})             AS qemb
-),
-lex AS (
-  SELECT c.chunk_id, c.doc_id, c.text, c.page_start, c.page_end, 
-         c.content_type, c.image_path,
-         ts_rank_cd(c.lex, to_tsquery('simple', regexp_replace(%(q_ts)s, '\s+', ' & ', 'g'))) AS lex_score,
-         0::float AS vec_score
-  FROM chunks c
-  WHERE c.lex @@ to_tsquery('simple', regexp_replace(%(q_ts)s, '\s+', ' & ', 'g'))
-    {doc_filter}
-  ORDER BY lex_score DESC
-  LIMIT %(k_lex)s
-),
-vec AS (
-  SELECT c.chunk_id, c.doc_id, c.text, c.page_start, c.page_end,
-         c.content_type, c.image_path,
-         0::float AS lex_score,
-         1 - (c.emb <=> (SELECT qemb FROM q)) AS vec_score
-  FROM chunks c
-  WHERE 1=1 {doc_filter}
-  ORDER BY c.emb <=> (SELECT qemb FROM q)
-  LIMIT %(k_vec)s
-),
-u AS (
-  SELECT * FROM lex
-  UNION ALL
-  SELECT * FROM vec
-)
-SELECT chunk_id, doc_id, text, page_start, page_end, content_type, image_path, lex_score, vec_score FROM u
-ORDER BY (0.6*lex_score + 0.4*vec_score) DESC
-LIMIT %(k)s;
-"""
-
-def sanitize_query_for_tsquery(query: str) -> str:
-    """
-    Sanitize query string for PostgreSQL tsquery to prevent syntax errors.
-    
-    Handles special characters that break tsquery syntax:
-    - Replaces literal & with "and" (to avoid confusion with tsquery AND operator)
-    - Removes/escapes other tsquery operators: |, !, (, ), :, *
-    - Removes leading/trailing special characters
-    - Strips bullet points and other formatting characters
-    
-    Args:
-        query: Raw query string (potentially from LLM output)
-        
-    Returns:
-        Sanitized query string safe for tsquery
-    """
-    import re
-    
-    # Remove leading bullet points, asterisks, dashes
-    query = re.sub(r'^[\*\-\•\s]+', '', query.strip())
-    
-    # Replace literal & with "and" (preserve the meaning but avoid tsquery syntax conflicts)
-    query = query.replace('&', ' and ')
-    
-    # Remove or escape other tsquery special characters
-    # These characters have special meaning in tsquery: |, !, (, ), :, *
-    # We'll remove them to avoid syntax errors, as they're not typically needed for basic search
-    query = re.sub(r'[\!\|\:\*]', ' ', query)
-    
-    # Remove quotes that might cause issues
-    query = query.replace('"', '').replace("'", '')
-    
-    # Normalize whitespace
-    query = re.sub(r'\s+', ' ', query).strip()
-    
-    return query
-
-def mmr(candidates, query_emb, lambda_mult=0.5, k=8):
-    """Simple MMR over dense vectors only; you can blend in lex_score if desired."""
-    selected, selected_ids = [], set()
-    cand = candidates.copy()
-    while len(selected) < min(k, len(cand)):
-        best, best_id, best_score = None, None, -1e9
-        for i, c in enumerate(cand):
-            sim_q = float(np.dot(c["emb"], query_emb))  # cosine if normalized
-            sim_d = max((np.dot(c["emb"], s["emb"]) for s in selected), default=0.0)
-            score = lambda_mult*sim_q - (1-lambda_mult)*sim_d
-            if score > best_score:
-                best, best_id, best_score = c, c["chunk_id"], score
-        selected.append(best)
-        cand = [x for x in cand if x["chunk_id"] != best_id]
-    return selected
 
 def retrieve_hybrid(
     query: str, 
@@ -213,10 +21,15 @@ def retrieve_hybrid(
     k_lex=40, 
     k_vec=40,
     query_image: Optional[Union[str, Image.Image]] = None,
-    doc_id: Optional[str] = None
-):
+    doc_id: Optional[str] = None,
+    cross_doc: bool = False
+) -> List[dict]:
     """
     Hybrid retrieval with multi-modal support and optional document filtering.
+    
+    Supports two-stage retrieval when cross_doc=True and doc_id is provided:
+    1. First stage: Retrieve from doc_id (primary retrieval)
+    2. Second stage: Embed query + retrieved content, then search semantically across all docs
     
     Args:
         query: Text query string
@@ -225,149 +38,39 @@ def retrieve_hybrid(
         k_vec: Number of vector results to retrieve
         query_image: Optional image to combine with text query for multi-modal search
         doc_id: Optional document ID to filter chunks to a specific document
+        cross_doc: If True and doc_id provided, perform two-stage retrieval (doc_id first, then cross-doc semantic search)
+                   If True and doc_id not provided, enable cross-document search
         
     Returns:
         List of retrieved chunks with scores
     """
-    # Embed query using CLIP (text or text+image)
-    if query_image:
-        qemb = embed_multi_modal(text=query, image_path=query_image, normalize_emb=True)
-    else:
-        qemb = embed_text(query, normalize_emb=True)
+    # Two-stage retrieval when cross_doc=True and doc_id is provided
+    if cross_doc and doc_id:
+        logger.info(f"Two-stage retrieval: First stage from doc_id {doc_id[:8]}..., then cross-document semantic search")
+        
+        # Stage 1: Retrieve from doc_id (primary retrieval)
+        primary_chunks = retrieve_stage_one(query, k, k_lex, k_vec, query_image, doc_id)
+        
+        if not primary_chunks:
+            logger.warning(f"No chunks found for doc_id {doc_id[:8]}..., falling back to cross-document search")
+            # Fall back to cross-document search if no primary chunks found
+            return retrieve_stage_two(query, k, k_lex, k_vec, query_image, None)
+        
+        # Stage 2: Embed query + retrieved content, then search semantically across all docs
+        # Combine query with retrieved content for better semantic search
+        combined_text = query + " " + " ".join([c["text"][:500] for c in primary_chunks[:3]])  # Use top 3 chunks
+        logger.info(f"Stage 2: Cross-document semantic search with combined query + retrieved content")
+        
+        secondary_chunks = retrieve_stage_two(combined_text, k, k_lex, k_vec, query_image, doc_id)
+        
+        # Merge and deduplicate results (prioritize primary chunks)
+        all_chunks = merge_and_deduplicate(primary_chunks, secondary_chunks, k)
+        
+        return all_chunks
     
-    # Convert numpy array to list of Python floats for psycopg2/pgvector compatibility
-    # psycopg2 can't handle numpy.float32 directly - need Python native floats
-    # For pgvector, we need to ensure the list is properly formatted
-    if isinstance(qemb, np.ndarray):
-        qemb_list = qemb.astype(np.float64).tolist()  # Convert to float64 then to list
-    else:
-        qemb_list = [float(x) for x in qemb]
+    # Standard single-stage retrieval
+    # If cross_doc=True but no doc_id, enable cross-document search
+    # If cross_doc=False and doc_id provided, strict doc_id filtering
+    # If cross_doc=False and no doc_id, search all documents
     
-    # Ensure we have the expected number of dimensions
-    if len(qemb_list) != EMBEDDING_DIM:
-        raise ValueError(f"Expected embedding dimension {EMBEDDING_DIM}, got {len(qemb_list)}")
-    
-    # Sanitize query for tsquery to prevent syntax errors from special characters
-    # This is especially important for LLM-generated refinement queries
-    sanitized_query = sanitize_query_for_tsquery(query)
-    
-    # Log if sanitization changed the query (for debugging)
-    if sanitized_query != query:
-        logger.debug(f"Query sanitized: '{query}' -> '{sanitized_query}'")
-    
-    # Generate SQL with optional doc_id filter
-    hybrid_sql = get_hybrid_sql(EMBEDDING_DIM, doc_id=doc_id)
-    
-    # Log document filtering if applicable
-    if doc_id:
-        logger.info(f"Filtering retrieval to document {doc_id[:8]}...")
-    
-    with connect() as conn, conn.cursor() as cur:
-        try:
-            params = {
-                "q": query,  # Keep original for embedding/vector search
-                "q_ts": sanitized_query,  # Use sanitized for tsquery
-                "emb": qemb_list,
-                "k": k_lex + k_vec,
-                "k_lex": k_lex,
-                "k_vec": k_vec
-            }
-            if doc_id:
-                params["doc_id"] = doc_id
-            
-            cur.execute(hybrid_sql, params)
-            rows = cur.fetchall()
-        except Exception as e:
-            logger.error(f"SQL query failed: {e}", exc_info=True)
-            conn.rollback()  # Explicitly rollback on error
-            raise
-
-    # Pull dense embeddings for MMR/rerank
-    ids = [r[0] for r in rows]  # chunk_id
-    if not ids: 
-        return []
-    
-    def parse_vector(emb):
-        """Parse pgvector vector type from database to numpy array."""
-        if isinstance(emb, str):
-            # pgvector returns vectors as strings like '[0.1,0.2,0.3]'
-            # Remove brackets and split by comma
-            try:
-                # Remove brackets and whitespace
-                emb_str = emb.strip('[]').strip()
-                # Split by comma and convert to float
-                # Handle scientific notation issues (e.g., "3.088634-05" -> "3.088634e-05")
-                parts = [p.strip() for p in emb_str.split(',')]
-                values = []
-                for part in parts:
-                    # Fix malformed scientific notation (missing 'e' before exponent)
-                    # Pattern: number followed by - or + followed by digits (exponent)
-                    # Match patterns like "3.088634-05" and convert to "3.088634e-05"
-                    part = re.sub(r'([0-9])([+-])([0-9]+)$', r'\1e\2\3', part)
-                    values.append(float(part))
-                return np.array(values, dtype=np.float32)
-            except Exception as e:
-                logger.error(f"Failed to parse vector: {emb[:100]}... Error: {e}")
-                raise ValueError(f"Could not parse vector from database: {e}")
-        elif isinstance(emb, (list, tuple)):
-            # Already a list/tuple, convert to numpy array
-            return np.array(emb, dtype=np.float32)
-        elif isinstance(emb, np.ndarray):
-            # Already a numpy array
-            return emb.astype(np.float32)
-        else:
-            raise ValueError(f"Unexpected vector type: {type(emb)}")
-    
-    with connect() as conn, conn.cursor() as cur:
-        # Handle both old schema (no content_type) and new schema
-        # Cast array to UUID[] to fix type mismatch error
-        try:
-            cur.execute(
-                "SELECT chunk_id, text, emb, COALESCE(content_type, 'text'), COALESCE(image_path, '') FROM chunks WHERE chunk_id = ANY(%s::uuid[])", 
-                (ids,)
-            )
-            id2 = {cid: (txt, parse_vector(emb), content_type or 'text', image_path or '') 
-                   for cid, txt, emb, content_type, image_path in cur.fetchall()}
-        except Exception:
-            # Fallback for old schema
-            cur.execute(
-                "SELECT chunk_id, text, emb FROM chunks WHERE chunk_id = ANY(%s::uuid[])", 
-                (ids,)
-            )
-            id2 = {cid: (txt, parse_vector(emb), 'text', '') 
-                   for cid, txt, emb in cur.fetchall()}
-
-    cands = []
-    for r in rows:
-        cid, doc_id, txt, p0, p1, content_type, image_path, lex_s, vec_s = r
-        txt, emb, ct, img_path = id2.get(cid, (txt, None, content_type, image_path))
-        if emb is None:
-            continue
-        cands.append({
-            "chunk_id": cid,
-            "doc_id": doc_id,
-            "text": txt,
-            "emb": emb,
-            "p0": p0,
-            "p1": p1,
-            "content_type": ct or content_type,
-            "image_path": img_path or image_path,
-            "lex": float(lex_s),
-            "vec": float(vec_s)
-        })
-
-    # Cross-encoder rerank (text-only, heavy precision step)
-    if reranker and cands:
-        pairs = [[query, c["text"]] for c in cands]
-        try:
-            ce_scores = reranker.predict(pairs)
-            for c, s in zip(cands, ce_scores):
-                c["ce"] = float(s)
-            cands.sort(key=lambda x: x["ce"], reverse=True)
-        except Exception as e:
-            logger.warning(f"Reranking failed: {e}. Continuing without reranking.")
-
-    # MMR diversify on top N, then return top-k
-    # Use a larger candidate pool to ensure better diversity across pages
-    diversified = mmr(cands[:30], qemb, lambda_mult=0.5, k=k)  # Reduced lambda to favor diversity
-    return diversified
+    return retrieve_stage_one(query, k, k_lex, k_vec, query_image, doc_id if not cross_doc else None)

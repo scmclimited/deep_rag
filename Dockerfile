@@ -1,16 +1,15 @@
 FROM python:3.11-slim
 
 # System deps for OCR and PDF rendering
-RUN pip install --upgrade pip
 RUN apt-get update && apt-get install -y \
-    tesseract-ocr poppler-utils libglib2.0-0 libgl1 \
-  && rm -rf /var/lib/apt/lists/*
+    tesseract-ocr poppler-utils libglib2.0-0 libgl1 graphviz \
+  && rm -rf /var/lib/apt/lists/* \
+  && pip install --upgrade pip
 
 WORKDIR /app
 
 # Python deps
 COPY requirements.txt ./
-RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 # App code

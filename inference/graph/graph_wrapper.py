@@ -1,10 +1,10 @@
-from inference.graph.graph import build_app
+from inference.graph.builder import build_app
 import logging
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[str] = None) -> str:
+def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[str] = None, cross_doc: bool = False) -> str:
     """
     Query using LangGraph pipeline with conditional routing.
     
@@ -15,6 +15,7 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
         question: The question to ask
         thread_id: Optional thread ID for conversation state (default: "default")
         doc_id: Optional document ID to filter retrieval to a specific document
+        cross_doc: If True, enable cross-document retrieval (two-stage when doc_id provided)
         
     Returns:
         The final answer from the graph pipeline
@@ -25,7 +26,9 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
     logger.info(f"Question: {question}")
     logger.info(f"Thread ID: {thread_id}")
     if doc_id:
-        logger.info(f"Document filter: {doc_id[:8]}...")
+        logger.info(f"Document filter: {doc_id}...")
+    if cross_doc:
+        logger.info("Cross-document retrieval enabled")
     
     app = build_app()  # uses ./langgraph_state.sqlite
     # thread_id lets you keep state per ongoing conversation (optional for this pipeline)
@@ -37,7 +40,9 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
         "answer": "", 
         "confidence": 0.0, 
         "iterations": 0, 
-        "refinements": []
+        "refinements": [],
+        "doc_ids": [],
+        "cross_doc": cross_doc
     }
     if doc_id:
         initial_state["doc_id"] = doc_id
@@ -67,5 +72,5 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
 
 if __name__ == "__main__":
     import sys
-    q = " ".join(sys.argv[1:]) or "What does the document say about model architecture?"
+    q = " ".join(sys.argv[1:]) or "In summary, what does the document say?"
     print(ask_with_graph(q, thread_id="cli-demo"))

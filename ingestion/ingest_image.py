@@ -4,7 +4,6 @@ from uuid import uuid4
 from pathlib import Path
 import os
 import logging
-from psycopg2 import connect
 from dotenv import load_dotenv
 import psycopg2, psycopg2.extras as pe
 
@@ -24,14 +23,7 @@ logger = logging.getLogger(__name__)
 # Only import what's actually used in this file
 from ingestion.embeddings import embed_text, embed_multi_modal
 
-def connect():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS"),
-        dbname=os.getenv("DB_NAME")
-    )
+from retrieval.db_utils import connect
 
 def extract_text_from_image(image_path: str) -> str:
     """

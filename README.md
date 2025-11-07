@@ -153,7 +153,12 @@ deep_rag/
 │   └── docker-compose.yml        # Stand-alone DB service (pgvector)
 │
 ├── scripts/                      # Docker and deployment scripts
-│   └── entrypoint.sh             # Docker container entrypoint (runs tests on startup if enabled)
+│   ├── entrypoint.sh             # Docker container entrypoint (runs tests on startup if enabled)
+│   ├── test_endpoints_make.sh   # Endpoint testing via Make commands
+│   ├── test_endpoints_rest.sh   # Endpoint testing via REST API (curl)
+│   ├── test_endpoints_quick.sh  # Quick endpoint test (one of each type)
+│   ├── ENDPOINT_TESTING_GUIDE.md # Comprehensive endpoint testing guide
+│   └── README_TEST_ENDPOINTS.md  # Endpoint testing script documentation
 │
 ├── md_guides/                    # Documentation guides
 │   ├── EMBEDDING_OPTIONS.md      # Embedding model options and recommendations
@@ -187,12 +192,14 @@ The Deep RAG system provides multiple entry points (CLI, Make, TOML, REST API) f
 | `query-graph` | `make query-graph` | `POST /ask-graph` | LangGraph | **Query only (LangGraph)**: Agentic pipeline with conditional routing. Agents can refine queries and retrieve more evidence if confidence is low. Best for complex questions requiring iterative reasoning. Supports `--doc-id`, `--thread-id`, and `--cross-doc` flags. |
 | `infer` | `make infer` | `POST /infer` | Direct (`inference/agents/pipeline.py`) | **Ingest + Query (direct pipeline)**: Combined ingestion and querying in one operation. Use when you have a document and want immediate answers with fast, deterministic processing. Supports `--file`, `--title`, and `--cross-doc` flags. |
 | `infer-graph` | `make infer-graph` | `POST /infer-graph` | LangGraph | **Ingest + Query (LangGraph)**: Combined ingestion with agentic reasoning. Best when you need to ingest and then perform complex reasoning over the new content. Supports `--file`, `--title`, `--thread-id`, and `--cross-doc` flags. |
-| `health` | N/A | `GET /health` | N/A | **Health check**: Verifies database connectivity and service availability. |
-| `graph` | `make graph` | `GET /graph` | N/A | **Graph export**: Exports LangGraph pipeline visualization as PNG or Mermaid diagram. Useful for understanding the agentic flow. |
-| `inspect` | `make inspect` | `GET /diagnostics/document` | N/A | **Document diagnostics**: Inspects what chunks and pages are stored for a document. Shows page distribution, chunk counts, and sample text. Essential for debugging ingestion and retrieval issues. |
-| `test` | `make test` | N/A | N/A | **Testing**: Run all tests (unit + integration). Supports `--docker` flag. |
-| `test unit` | `make unit-tests` | N/A | N/A | **Unit tests only**: Run unit tests for individual modules. Supports `--docker` flag. |
-| `test integration` | `make integration-tests` | N/A | N/A | **Integration tests only**: Run integration tests for end-to-end workflows. Supports `--docker` flag. |
+| `health` | `make health` | `GET /health` | - | **Health check**: Verifies database connectivity and service availability. |
+| `graph` | `make graph` | `GET /graph` | LangGraph | **Graph export**: Exports LangGraph pipeline visualization as PNG or Mermaid diagram. Useful for understanding the agentic flow. |
+| `inspect` | `make inspect` | `GET /diagnostics/document` | - | **Document diagnostics**: Inspects what chunks and pages are stored for a document. Shows page distribution, chunk counts, and sample text. Essential for debugging ingestion and retrieval issues. |
+| `test` | `make test` | - | ALL | **Testing**: Run all tests (unit + integration). Supports `--docker` flag. |
+| `test unit` | `make unit-tests` | - | ALL | **Unit tests only**: Run unit tests for individual modules. Supports `--docker` flag. |
+| `test integration` | `make integration-tests` | - | - | **Integration tests only**: Run integration tests for end-to-end workflows. Supports `--docker` flag. |
+| - | `make test-endpoints` | ALL | - | **Endpoint testing**: Test all ingest/query/infer endpoints (Make + REST). Verifies all endpoints work correctly. |
+| - | `make test-endpoints-quick` | ALL | - | **Quick endpoint test**: Test one example of each endpoint type. Fast verification. |
 
 ### Pipeline Comparison
 
@@ -217,7 +224,7 @@ For detailed scenarios and use cases for each entry point, see [`md_guides/ENTRY
 | **Thread Tracking** | **NEW**: Comprehensive audit logging via `thread_tracking` table. Tracks user interactions, thread sessions, document retrievals, pipeline states, and entry points for SFT/RLHF training and analysis. See [`md_guides/THREAD_TRACKING_AND_AUDIT.md`](md_guides/THREAD_TRACKING_AND_AUDIT.md). |
 | **Reasoning Logs** | All agentic reasoning steps are logged to `inference/graph/logs/` in both CSV (for training) and TXT (for presentations). Captures queries, plans, retrievals, confidence scores, and refinements for future SFT model training. |
 | **Modular Architecture** | Fully modularized codebase with focused modules for agents, LLM providers, retrieval stages, embeddings, database operations, and diagnostics. Improves legibility, testing, and context switching. |
-| **Comprehensive Testing** | Unit tests for all modules and integration tests for LLM providers and end-to-end workflows. Tests can be run via CLI, Make, TOML, or direct Pytest. |
+| **Comprehensive Testing** | Unit tests for all modules and integration tests for LLM providers and end-to-end workflows. **Automated endpoint testing scripts** verify all ingest, query, and infer endpoints work correctly. Tests can be run via CLI, Make, TOML, or direct Pytest. |
 | **Microservice Ready** | FastAPI REST interface with comprehensive endpoints for ingestion, querying (direct and LangGraph), and health checks. |
 | **CLI Ready** | Typer CLI matching all REST endpoints for easy local development and testing. |
 | **Containerized DB** | pgvector/pg16 Docker image with automatic schema init via mounted SQL file. Support for fresh database starts and migrations. |
@@ -418,7 +425,7 @@ cd deep_rag
 ### 2. Create Virtual Environment
 ```bash
 python -m venv .venv
-source .venv/bin/activate      # On Windows: .venv\Scripts\activate
+source .venv/bi-ctivate      # On Windows: .venv\Scripts\activate
 ```
 
 ### 3. Install Dependencies
@@ -460,9 +467,19 @@ make db-up           # Or: cd vector_db && docker-compose up -d
 ```
 
 **Note:** The Docker container uses an entrypoint script (`scripts/entrypoint.sh`) that:
-- Optionally runs database schema tests on startup if `RUN_TESTS_ON_STARTUP=true` is set in your `.env`
+- **Optionally runs database schema tests on startup** if `RUN_TESTS_ON_STARTUP=true` is set in your `.env`
+  - Verifies all required tables exist (`documents`, `chunks`, `thread_tracking`)
+  - Ensures database schema is properly initialized
+  - Default: `false` (tests are not run on startup)
 - Starts the FastAPI server on port 8000
 - Provides health check endpoint at `/health` that verifies database connection and required tables
+
+**To enable startup tests**, add to your `.env`:
+```bash
+RUN_TESTS_ON_STARTUP=true
+```
+
+See [`scripts/entrypoint.sh`](scripts/entrypoint.sh) for details.
 
 ### 6. Verify Services
 ```bash
@@ -605,6 +622,12 @@ make integration-tests    # Run integration tests only
 make test DOCKER=true     # Run tests inside Docker container
 make unit-tests DOCKER=true
 make integration-tests DOCKER=true
+
+# Endpoint Testing (NEW)
+make test-endpoints       # Test all ingest/query/infer endpoints (Make + REST)
+make test-endpoints-make  # Test endpoints via Make commands
+make test-endpoints-rest  # Test endpoints via REST API (curl)
+make test-endpoints-quick # Quick test (one example of each endpoint type)
 ```
 
 ---
@@ -879,6 +902,25 @@ make integration-tests    # Run integration tests locally
 make integration-tests DOCKER=true  # Run integration tests inside Docker container
 ```
 
+**Test all endpoints (ingest, query, infer):**
+```bash
+# Quick test (recommended for first run)
+make test-endpoints-quick  # Tests one example of each endpoint type
+
+# Full test suite
+make test-endpoints        # Tests all endpoints via Make commands + REST API
+make test-endpoints-make  # Test endpoints via Make commands only
+make test-endpoints-rest  # Test endpoints via REST API (curl) only
+```
+
+**Note:** Endpoint testing scripts automatically:
+- Test all ingest, query, and infer endpoints
+- Verify all flag combinations (doc_id, cross_doc, thread_id)
+- Check logging and response formats
+- Extract doc_id from ingest responses for subsequent queries
+
+See [`scripts/ENDPOINT_TESTING_GUIDE.md`](scripts/ENDPOINT_TESTING_GUIDE.md) for detailed documentation.
+
 ### Via CLI (Command Line Interface)
 
 **Run all tests:**
@@ -997,7 +1039,13 @@ Integration tests cover:
   - Validates table structure (columns, data types, constraints)
   - Checks required indexes exist for efficient retrieval
   - Verifies multi-modal embedding support (vector type, dimensions)
-  - Tests run automatically after `make up` to ensure schema is properly initialized
+  - Tests can run automatically on startup if `RUN_TESTS_ON_STARTUP=true` is set in `.env`
+  - Tests run automatically after `make up-and-test` to ensure schema is properly initialized
+- **Endpoint Testing**: Automated test scripts for all ingest, query, and infer endpoints
+  - Tests all endpoints via Make commands and REST API
+  - Verifies all flag combinations (doc_id, cross_doc, thread_id)
+  - Checks logging and response formats
+  - See [`scripts/ENDPOINT_TESTING_GUIDE.md`](scripts/ENDPOINT_TESTING_GUIDE.md) for details
 - **End-to-End Pipeline**: Full ingestion → retrieval → synthesis workflows
 - **Database Operations**: Real database interactions with test fixtures
 
@@ -1009,6 +1057,98 @@ Integration tests dynamically check connectivity with LLM providers based on `.e
 - **Ollama**: Tests if `OLLAMA_URL` is set
 
 Tests automatically skip providers that are not configured, so you don't need to manually execute per provider.
+
+## Startup Testing Automation
+
+The Docker container includes an **entrypoint script** (`scripts/entrypoint.sh`) that can automatically run database schema tests on startup.
+
+### How It Works
+
+1. **On Container Startup**: The entrypoint script checks if `RUN_TESTS_ON_STARTUP=true` is set in your `.env`
+2. **If Enabled**: Runs `tests/integration/test_database_schema.py` to verify:
+   - All required tables exist (`documents`, `chunks`, `thread_tracking`)
+   - Table structure is correct (columns, data types, constraints)
+   - Required indexes exist
+   - Multi-modal embedding support is configured
+3. **Then Starts API**: FastAPI server starts on port 8000
+
+### Enable Startup Tests
+
+Add to your `.env` file:
+```bash
+RUN_TESTS_ON_STARTUP=true
+```
+
+**Note:** Startup tests are **optional** and disabled by default. They add a few seconds to container startup time but provide early verification that the database schema is properly initialized.
+
+### Alternative: Manual Testing
+
+If you prefer to run tests manually:
+```bash
+# After make up
+make test DOCKER=true
+
+# Or use up-and-test
+make up-and-test  # Starts services, then runs all tests
+```
+
+See [`scripts/entrypoint.sh`](scripts/entrypoint.sh) for implementation details.
+
+## Endpoint Testing Automation
+
+Deep RAG includes **automated endpoint testing scripts** that verify all ingest, query, and infer endpoints work correctly.
+
+### Quick Start
+
+```bash
+# 1. Start services
+make up
+
+# 2. Run quick endpoint test (recommended first)
+make test-endpoints-quick
+
+# 3. Run full endpoint test suite
+make test-endpoints
+```
+
+### What Gets Tested
+
+The endpoint testing scripts automatically test:
+
+- ✅ **Ingest endpoints**: PDF, Image files
+- ✅ **Query endpoints** (Direct pipeline): All docs, specific doc_id, cross-doc
+- ✅ **Query-graph endpoints** (LangGraph pipeline): All docs, specific doc_id, cross-doc, thread_id
+- ✅ **Infer endpoints** (Direct pipeline): PDF+Query, Image+Query, cross-doc, query-only
+- ✅ **Infer-graph endpoints** (LangGraph pipeline): PDF+Query, Image+Query, cross-doc, thread_id, query-only
+- ✅ **Health check endpoint**: Database connection and schema verification
+
+### Test Scripts
+
+| Script | Purpose | Usage |
+|--------|---------|-------|
+| `test_endpoints_make.sh` | Tests via Make commands | `make test-endpoints-make` |
+| `test_endpoints_rest.sh` | Tests via REST API (curl) | `make test-endpoints-rest` |
+| `test_endpoints_quick.sh` | Quick test (one of each type) | `make test-endpoints-quick` |
+
+### Logging Verification
+
+After running endpoint tests, verify logging:
+
+```bash
+# Check API logs
+docker compose logs api
+
+# Check graph logs (LangGraph endpoints)
+ls -la inference/graph/logs/
+
+# Check thread_tracking table
+docker compose exec db psql -U $DB_USER -d $DB_NAME -c "SELECT thread_id, entry_point, pipeline_type, cross_doc, created_at FROM thread_tracking ORDER BY created_at DESC LIMIT 10;"
+```
+
+### Documentation
+
+- **Full Guide**: [`scripts/ENDPOINT_TESTING_GUIDE.md`](scripts/ENDPOINT_TESTING_GUIDE.md)
+- **Script Details**: [`scripts/README_TEST_ENDPOINTS.md`](scripts/README_TEST_ENDPOINTS.md)
 
 ## Test Configuration
 

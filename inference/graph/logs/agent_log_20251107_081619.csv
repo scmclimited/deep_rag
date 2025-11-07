@@ -1,0 +1,4 @@
+timestamp,session_id,node,action,question,plan,query,num_chunks_retrieved,pages_retrieved,confidence,iterations,refinements,answer,metadata
+2025-11-07T08:16:51.624360,,planner,plan_generation,what is the technical assessment about?,"1. Identify the main subject or topic of the technical assessment within document e894dbc8-abf0-4831-a307-3cdb8d8b5ae7.
+2. Determine the purpose or objective of the technical assessment as described in document e894dbc8-abf0-4831-a307-3cdb8d8b5ae7.
+3. Extract key findings or conclusions presented in the technical assessment within document e894dbc8-abf0-4831-a307-3cdb8d8b5ae7.",,0,,0.0,0,,,

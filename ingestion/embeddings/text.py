@@ -33,12 +33,18 @@ def embed_text(text: str, normalize_emb: bool = True, max_length: int = 77) -> n
     # For sentence-transformers CLIP models, we need to access the underlying transformers tokenizer
     tokenizer = None
     try:
+        # Ensure model is properly initialized
+        if model is None:
+            logger.warning("CLIP model is None, cannot access tokenizer")
         # Try multiple ways to access the tokenizer from SentenceTransformer's CLIP module
-        if hasattr(model, '_modules') and len(model._modules) > 0:
+        elif hasattr(model, '_modules') and len(model._modules) > 0:
             first_module = list(model._modules.values())[0]
             
+            # Ensure first_module is not None before accessing attributes
+            if first_module is None:
+                logger.warning("First module of CLIP model is None, cannot access tokenizer")
             # Method 1: Direct tokenizer attribute
-            if hasattr(first_module, 'tokenizer'):
+            elif hasattr(first_module, 'tokenizer'):
                 tokenizer_obj = first_module.tokenizer
                 # CLIPProcessor doesn't have encode, but it might have a tokenizer attribute
                 if hasattr(tokenizer_obj, 'encode'):
@@ -49,13 +55,13 @@ def embed_text(text: str, normalize_emb: bool = True, max_length: int = 77) -> n
                         tokenizer = tokenizer_obj.tokenizer
             
             # Method 2: Access from processor if it exists
-            if not tokenizer and hasattr(first_module, 'processor'):
+            if first_module is not None and not tokenizer and hasattr(first_module, 'processor'):
                 processor = first_module.processor
                 if hasattr(processor, 'tokenizer') and hasattr(processor.tokenizer, 'encode'):
                     tokenizer = processor.tokenizer
             
             # Method 3: Try to access from the underlying model
-            if not tokenizer and hasattr(first_module, '_modules'):
+            if first_module is not None and not tokenizer and hasattr(first_module, '_modules'):
                 for module in first_module._modules.values():
                     if hasattr(module, 'tokenizer') and hasattr(module.tokenizer, 'encode'):
                         tokenizer = module.tokenizer

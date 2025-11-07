@@ -44,6 +44,10 @@ graphviz>=0.20.3              # Required: Python wrapper for Graphviz (used by L
 #   Ubuntu/Debian: sudo apt-get install graphviz
 #   macOS: brew install graphviz
 
+# === Testing ===
+pytest>=7.4.0                 # Required: Testing framework
+pytest-cov>=4.1.0             # Optional: Code coverage reporting
+
 # === Future LLM Providers (Commented out - currently using Gemini only) ===
 # openai>=1.35.0              # Future: OpenAI provider (commented out)
 # ollama>=0.5.0               # Future: Ollama provider (commented out)

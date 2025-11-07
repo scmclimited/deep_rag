@@ -2,7 +2,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from inference.graph.graph import build_app
+from inference.graph.builder import build_app
 
 def export_graph_png(png_path: str = "deep_rag_graph.png") -> str:
     """

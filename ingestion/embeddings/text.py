@@ -1,50 +1,13 @@
-# embeddings.py
-# Unified multi-modal embedding system using CLIP for text and images in same semantic space
+"""
+Text embedding utilities.
+"""
 import logging
 import numpy as np
-from typing import Union, List, Optional
-from pathlib import Path
-from PIL import Image
-import io
-import os
-from sentence_transformers import SentenceTransformer
+from ingestion.embeddings.model import get_clip_model
+from ingestion.embeddings.utils import normalize
 
 logger = logging.getLogger(__name__)
 
-# Lazy loading for CLIP model
-_clip_model = None
-
-# Model configuration
-# CLIP-ViT-L/14: 768 dimensions (upgraded from ViT-B/32 512 dims)
-# Better performance with higher dimensional representations
-# Still has 77 token limit for text (inherent to CLIP architecture)
-DEFAULT_CLIP_MODEL = os.getenv("CLIP_MODEL", "sentence-transformers/clip-ViT-L-14")
-EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "768"))  # 768 for ViT-L/14, 512 for ViT-B/32
-
-def get_clip_model():
-    """Lazy load CLIP model for multi-modal embeddings."""
-    global _clip_model
-    if _clip_model is None:
-        try:
-            # CLIP model that handles both text and images in same embedding space
-            # Default: ViT-L/14 (768 dims) for better quality
-            # Alternative: ViT-B/32 (512 dims) for faster performance
-            # Can be configured via CLIP_MODEL environment variable
-            _clip_model = SentenceTransformer(DEFAULT_CLIP_MODEL)
-            logger.info(f"Loaded CLIP multi-modal embedding model ({DEFAULT_CLIP_MODEL}, {EMBEDDING_DIM} dims)")
-        except Exception as e:
-            logger.error(f"Failed to load CLIP model: {e}")
-            raise ImportError(
-                f"CLIP model not available: {e}\n"
-                "Install with: pip install sentence-transformers\n"
-                f"Failed model: {DEFAULT_CLIP_MODEL}"
-            ) from e
-    return _clip_model
-
-def normalize(v: np.ndarray) -> np.ndarray:
-    """Normalize embedding vector for cosine similarity."""
-    n = np.linalg.norm(v)
-    return v / max(n, 1e-12)
 
 def embed_text(text: str, normalize_emb: bool = True, max_length: int = 77) -> np.ndarray:
     """
@@ -59,7 +22,7 @@ def embed_text(text: str, normalize_emb: bool = True, max_length: int = 77) -> n
         max_length: Maximum sequence length (default: 77 for CLIP-ViT-B/32)
         
     Returns:
-        Normalized embedding vector (512 dimensions for CLIP-ViT-B/32)
+        Normalized embedding vector (768 dimensions for CLIP-ViT-L/14)
         
     Raises:
         ValueError: If encoding fails even after truncation
@@ -139,6 +102,7 @@ def embed_text(text: str, normalize_emb: bool = True, max_length: int = 77) -> n
     # Encode with sentence-transformers
     # Try encoding with proper error handling
     max_retries = 3
+    emb = None
     for attempt in range(max_retries):
         try:
             emb = model.encode(text, normalize_embeddings=False, show_progress_bar=False, convert_to_numpy=True)
@@ -172,128 +136,12 @@ def embed_text(text: str, normalize_emb: bool = True, max_length: int = 77) -> n
                 # Final attempt failed - this is a real error
                 logger.error(f"Encoding failed after {max_retries} attempts: {e}")
                 raise ValueError(f"Failed to encode text after truncation: {e}. Text may be too long or contain invalid characters.")
-    else:
+    
+    if emb is None:
         # This should not happen, but just in case
         raise ValueError("Encoding failed unexpectedly")
     
     if normalize_emb:
         return normalize(emb)
     return emb
-
-def embed_image(image_path: Union[str, Path, Image.Image], normalize_emb: bool = True) -> np.ndarray:
-    """
-    Embed image using CLIP model.
-    
-    Args:
-        image_path: Path to image file or PIL Image object
-        normalize_emb: Whether to normalize the embedding vector
-        
-    Returns:
-        Normalized embedding vector (512 dimensions for CLIP-ViT-B/32)
-    """
-    model = get_clip_model()
-    
-    # Handle different input types
-    if isinstance(image_path, (str, Path)):
-        image = Image.open(image_path).convert('RGB')
-    elif isinstance(image_path, Image.Image):
-        image = image_path.convert('RGB')
-    else:
-        raise ValueError(f"Unsupported image type: {type(image_path)}")
-    
-    # CLIP's encode method handles images automatically
-    emb = model.encode(image, normalize_embeddings=False)
-    if normalize_emb:
-        return normalize(emb)
-    return emb
-
-def embed_multi_modal(
-    text: Optional[str] = None,
-    image_path: Optional[Union[str, Path, Image.Image]] = None,
-    normalize_emb: bool = True
-) -> np.ndarray:
-    """
-    Embed text and/or image using CLIP model.
-    If both provided, concatenates and embeds together.
-    
-    Args:
-        text: Optional text string
-        image_path: Optional image path or PIL Image
-        normalize_emb: Whether to normalize the embedding vector
-        
-    Returns:
-        Normalized embedding vector (512 dimensions)
-    """
-    model = get_clip_model()
-    
-    if text and image_path:
-        # Multi-modal: embed text and image together
-        # CLIP can handle both, but we'll embed separately and combine
-        # Use embed_text to handle truncation properly (max 77 tokens)
-        text_emb = embed_text(text, normalize_emb=False, max_length=77)
-        
-        if isinstance(image_path, (str, Path)):
-            image = Image.open(image_path).convert('RGB')
-        elif isinstance(image_path, Image.Image):
-            image = image_path.convert('RGB')
-        else:
-            raise ValueError(f"Unsupported image type: {type(image_path)}")
-        
-        image_emb = model.encode(image, normalize_embeddings=False)
-        
-        # Average the embeddings (alternatively, could concatenate and reduce)
-        combined_emb = (text_emb + image_emb) / 2.0
-        
-        if normalize_emb:
-            return normalize(combined_emb)
-        return combined_emb
-    
-    elif text:
-        return embed_text(text, normalize_emb)
-    elif image_path:
-        return embed_image(image_path, normalize_emb)
-    else:
-        raise ValueError("Must provide either text or image_path")
-
-def embed_batch(
-    items: List[Union[str, Image.Image, tuple]],
-    normalize_emb: bool = True
-) -> np.ndarray:
-    """
-    Embed a batch of text strings, images, or (text, image) tuples.
-    
-    Args:
-        items: List of text strings, PIL Images, or (text, image) tuples
-        normalize_emb: Whether to normalize embedding vectors
-        
-    Returns:
-        Array of normalized embedding vectors (N x 512)
-    """
-    model = get_clip_model()
-    embeddings = []
-    
-    for item in items:
-        if isinstance(item, tuple):
-            # Multi-modal: (text, image)
-            text, image = item
-            emb = embed_multi_modal(text=text, image_path=image, normalize_emb=False)
-        elif isinstance(item, Image.Image):
-            # Image only
-            emb = embed_image(item, normalize_emb=False)
-        elif isinstance(item, str):
-            # Text only
-            emb = embed_text(item, normalize_emb=False)
-        else:
-            raise ValueError(f"Unsupported item type: {type(item)}")
-        
-        if normalize_emb:
-            embeddings.append(normalize(emb))
-        else:
-            embeddings.append(emb)
-    
-    return np.array(embeddings)
-
-# Embedding dimensions - configured at top of file based on model selection
-# CLIP-ViT-L/14: 768 dims (default)
-# CLIP-ViT-B/32: 512 dims (legacy)
 

@@ -49,8 +49,12 @@ Gemini is multi-modal (text, images, audio, video) and excellent for RAG tasks.
    ```bash
    LLM_PROVIDER=gemini
    GEMINI_API_KEY=your_api_key_here
-   GEMINI_MODEL=gemini-pro
-   # Or use the latest: gemini-1.5-pro
+   # Recommended models (in order of preference):
+   # - gemini-1.5-flash: Best balance of speed and quality, 1M token context (RECOMMENDED)
+   # - gemini-2.0-flash: Latest model with improved reasoning
+   # - gemini-2.5-flash-lite: Lightweight, faster but limited context
+   GEMINI_MODEL=gemini-1.5-flash
+   LLM_TEMPERATURE=0.2
    ```
 
 3. **Restart Docker**:
@@ -125,7 +129,7 @@ docker compose exec api python -m inference.cli query "What is the technical ass
 ### Gemini API Error
 - Verify `GEMINI_API_KEY` is set correctly
 - Check API key is valid at https://makersuite.google.com/app/apikey
-- Ensure `GEMINI_MODEL` is valid (e.g., "gemini-pro" or "gemini-1.5-pro")
+- Ensure `GEMINI_MODEL` is valid (e.g., "gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite")
 - Check API quota/limits
 
 ### OpenAI API Error

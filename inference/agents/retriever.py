@@ -35,7 +35,7 @@ def retriever_agent(state: State) -> State:
     
     if doc_ids_found:
         state["doc_ids"] = list(doc_ids_found)
-        logger.info(f"Found {len(doc_ids_found)} document(s) in retrieved chunks: {[d + "..." for d in doc_ids_found]}")
+        logger.info(f"Found {len(doc_ids_found)} document(s) in retrieved chunks: {[d + '...' for d in doc_ids_found]}")
     elif not state.get('doc_ids'):
         state["doc_ids"] = []
     

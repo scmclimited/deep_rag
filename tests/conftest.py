@@ -10,13 +10,6 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-# Set test environment variables
-os.environ.setdefault("DB_HOST")
-os.environ.setdefault("DB_PORT")
-os.environ.setdefault("DB_USER")
-os.environ.setdefault("DB_PASS")
-os.environ.setdefault("DB_NAME")
-
 @pytest.fixture(scope="session")
 def test_env():
     """Fixture to provide test environment variables."""

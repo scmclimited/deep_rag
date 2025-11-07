@@ -14,6 +14,7 @@ help:
 	@echo "Deep RAG — common commands"
 	@echo "---------------------------"
 	@echo "make up            # build & start API + DB via root docker-compose.yml"
+	@echo "make up-and-test   # build & start API + DB, then run tests to verify setup"
 	@echo "make down          # stop and remove containers/volumes"
 	@echo "make logs          # tail API + DB logs"
 	@echo "make rebuild       # rebuild API image and restart stack"
@@ -30,11 +31,24 @@ help:
 	@echo "make test [DOCKER=true]  # run all tests (unit + integration)"
 	@echo "make unit-tests [DOCKER=true]  # run unit tests only"
 	@echo "make integration-tests [DOCKER=true]  # run integration tests only"
+	@echo "make test-endpoints  # test all ingest/query/infer endpoints (Make + REST)"
+	@echo "make test-endpoints-make  # test endpoints via Make commands"
+	@echo "make test-endpoints-rest  # test endpoints via REST API (curl)"
+	@echo "make test-endpoints-quick  # quick test (one example of each endpoint type)"
 	@echo ""
 
 # --- Root stack (API + DB) ---
 up:
 	$(DC) up -d --build
+	@echo ""
+	@echo "Services started. Waiting for API to be ready..."
+	@sleep 3
+	@echo "Run 'make test DOCKER=true' to verify everything is working."
+
+up-and-test: up
+	@echo ""
+	@echo "Running tests to verify setup..."
+	@$(MAKE) test DOCKER=true
 
 down:
 	$(DC) down -v
@@ -301,6 +315,22 @@ integration-tests:
 	else \
 		$(PY) -m pytest tests/integration/ -v; \
 	fi
+
+# --- Endpoint Testing ---
+test-endpoints-make:
+	@echo "Testing all endpoints via Make commands..."
+	@bash scripts/test_endpoints_make.sh
+
+test-endpoints-rest:
+	@echo "Testing all endpoints via REST API..."
+	@bash scripts/test_endpoints_rest.sh
+
+test-endpoints: test-endpoints-make test-endpoints-rest
+	@echo "All endpoint tests completed!"
+
+test-endpoints-quick:
+	@echo "Running quick endpoint test (one example of each type)..."
+	@bash scripts/test_endpoints_quick.sh
 
 # --- Graph visualization ---
 # Use DOCKER=true to run inside Docker container where dependencies are installed

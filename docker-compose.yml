@@ -46,6 +46,8 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       DB_NAME: ${DB_NAME}
+      # Optional: Set RUN_TESTS_ON_STARTUP=true to run database schema tests on startup
+      # RUN_TESTS_ON_STARTUP: ${RUN_TESTS_ON_STARTUP:-false}
     ports:
       - "8000:8000"
     volumes:
@@ -54,3 +56,9 @@ services:
       # are immediately accessible at ./inference/graph/logs/ on your local machine
       - ./inference/graph/logs:/app/inference/graph/logs
       - ./artifacts:/app/artifacts
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

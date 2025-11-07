@@ -283,8 +283,8 @@ infer-graph:
 # --- Testing ---
 test:
 	@echo "Running all tests..."
-	@$(MAKE) unit-tests
-	@$(MAKE) integration-tests
+	@$(MAKE) unit-tests DOCKER=$(DOCKER)
+	@$(MAKE) integration-tests DOCKER=$(DOCKER)
 
 unit-tests:
 	@echo "Running unit tests..."

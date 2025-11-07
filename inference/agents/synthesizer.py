@@ -31,7 +31,7 @@ def synthesizer(state: State) -> State:
     
     if doc_ids_found:
         state["doc_ids"] = list(doc_ids_found)
-        logger.info(f"Identified {len(doc_ids_found)} document(s) from retrieved chunks: {[d + "..." for d in doc_ids_found]}")
+        logger.info(f"Identified {len(doc_ids_found)} document(s) from retrieved chunks: {[d + '...' for d in doc_ids_found]}")
         # Use the first doc_id as primary if not already set
         if not doc_id and len(doc_ids_found) == 1:
             doc_id = list(doc_ids_found)[0]

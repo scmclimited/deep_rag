@@ -38,7 +38,7 @@ def node_retriever(state: GraphState) -> GraphState:
             doc_ids_found.add(hit_doc_id)
     
     if doc_ids_found:
-        logger.info(f"Found {len(doc_ids_found)} document(s) in retrieved chunks: {[d + "..." for d in doc_ids_found]}")
+        logger.info(f"Found {len(doc_ids_found)} document(s) in retrieved chunks: {[d + '...' for d in doc_ids_found]}")
     
     logger.info(f"Retrieved {len(hits)} new chunks, {len(merged)} total after merge")
     for i, hit in enumerate(merged[:10], 1):  # Log top 10 for better visibility

@@ -14,6 +14,12 @@ from retrieval.stages import retrieve_stage_one, retrieve_stage_two, merge_and_d
 
 logger = logging.getLogger(__name__)
 
+# Export for backward compatibility
+__all__ = [
+    "retrieve_hybrid",
+    "wait_for_chunks",
+]
+
 
 def retrieve_hybrid(
     query: str, 

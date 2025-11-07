@@ -5,6 +5,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
+from typing import Optional
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from inference.agents import run_deep_rag
 from ingestion.ingest import ingest as ingest_pdf

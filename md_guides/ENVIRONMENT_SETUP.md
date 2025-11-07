@@ -90,6 +90,12 @@ LOG_LEVEL=INFO
 
 # Agent log directory
 AGENT_LOG_DIR=inference/graph/logs
+
+# Run database schema tests on API container startup (true/false)
+RUN_TESTS_ON_STARTUP=false
+
+# Run endpoint tests after make up-and-test completes (true/false)
+AUTOMATE_ENDPOINT_RUNS_ON_BOOT=false
 ```
 
 ## Configuration by Use Case
@@ -207,6 +213,44 @@ pip install sentence-transformers
 - CLIP models have 77 token limit (inherent to architecture)
 - System automatically chunks text to fit
 - If errors persist, reduce chunk size in `semantic_chunks()` function
+
+## Testing Configuration
+
+### Startup Tests
+
+**`RUN_TESTS_ON_STARTUP`** (default: `false`)
+- Runs database schema tests when the API container starts
+- Verifies all required tables exist (`documents`, `chunks`, `thread_tracking`)
+- Ensures database schema is properly initialized
+- Adds a few seconds to container startup time
+
+**To enable:**
+```bash
+RUN_TESTS_ON_STARTUP=true
+```
+
+### Endpoint Tests on Boot
+
+**`AUTOMATE_ENDPOINT_RUNS_ON_BOOT`** (default: `false`)
+- Runs endpoint tests after `make up-and-test` completes
+- Executes `make test-endpoints` (full suite: Make + REST API) to verify all endpoints work
+- Tests all endpoint configurations (ingest, query, infer) via both Make commands and REST API
+- Adds a few minutes to the startup process but provides comprehensive verification
+
+**To enable:**
+```bash
+AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true
+```
+
+**What gets tested:**
+- ✅ Health check endpoint
+- ✅ Ingest endpoints (PDF, Image)
+- ✅ Query endpoints (Direct pipeline)
+- ✅ Query-graph endpoints (LangGraph pipeline)
+- ✅ Infer endpoints (Direct pipeline)
+- ✅ Infer-graph endpoints (LangGraph pipeline)
+
+**Note:** Both testing options are **optional** and disabled by default. Enable them for comprehensive verification during development or CI/CD pipelines.
 
 ## Security Notes
 

@@ -14,7 +14,7 @@ help:
 	@echo "Deep RAG — common commands"
 	@echo "---------------------------"
 	@echo "make up            # build & start API + DB via root docker-compose.yml"
-	@echo "make up-and-test   # build & start API + DB, then run tests to verify setup"
+	@echo "make up-and-test   # build & start API + DB, then run tests to verify setup (optionally runs endpoint tests if AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true)"
 	@echo "make down          # stop and remove containers/volumes"
 	@echo "make logs          # tail API + DB logs"
 	@echo "make rebuild       # rebuild API image and restart stack"
@@ -50,6 +50,16 @@ up-and-test: up
 	@echo ""
 	@echo "Running tests to verify setup..."
 	@$(MAKE) test DOCKER=true
+	@if [ "${AUTOMATE_ENDPOINT_RUNS_ON_BOOT:-false}" = "true" ]; then \
+		echo ""; \
+		echo "=========================================="; \
+		echo "Running endpoint tests (AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true)"; \
+		echo "=========================================="; \
+		$(MAKE) test-endpoints; \
+		echo "=========================================="; \
+		echo "Endpoint tests completed."; \
+		echo "=========================================="; \
+	fi
 
 down:
 	$(DC) down -v

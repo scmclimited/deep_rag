@@ -453,6 +453,7 @@ The `.env.example` file contains all required environment variables with sample 
 
 **Optional Variables:**
 - **Startup Tests**: `RUN_TESTS_ON_STARTUP` (set to `true` to run database schema tests on container startup)
+- **Endpoint Tests on Boot**: `AUTOMATE_ENDPOINT_RUNS_ON_BOOT` (set to `true` to run endpoint tests after `make up-and-test`)
 
 ### 5. Start Services
 ```bash
@@ -461,6 +462,7 @@ make up              # Or: docker compose up -d --build
 
 # Option 2: Start and run tests automatically
 make up-and-test     # Starts services, then runs all tests to verify setup
+                     # Optionally runs endpoint tests if AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true
 
 # Option 3: Start DB only (for local development)
 make db-up           # Or: cd vector_db && docker-compose up -d
@@ -479,7 +481,13 @@ make db-up           # Or: cd vector_db && docker-compose up -d
 RUN_TESTS_ON_STARTUP=true
 ```
 
-See [`scripts/entrypoint.sh`](scripts/entrypoint.sh) for details.
+**To enable endpoint tests on boot**, add to your `.env`:
+```bash
+AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true
+```
+This will run `make test-endpoints` (full suite: Make + REST API) after `make up-and-test` completes, verifying all endpoints work correctly.
+
+See [`scripts/entrypoint.sh`](scripts/entrypoint.sh) for details on startup tests.
 
 ### 6. Verify Services
 ```bash
@@ -1045,6 +1053,7 @@ Integration tests cover:
   - Tests all endpoints via Make commands and REST API
   - Verifies all flag combinations (doc_id, cross_doc, thread_id)
   - Checks logging and response formats
+  - Can run automatically after `make up-and-test` if `AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true` is set in `.env`
   - See [`scripts/ENDPOINT_TESTING_GUIDE.md`](scripts/ENDPOINT_TESTING_GUIDE.md) for details
 - **End-to-End Pipeline**: Full ingestion → retrieval → synthesis workflows
 - **Database Operations**: Real database interactions with test fixtures
@@ -1090,9 +1099,27 @@ make test DOCKER=true
 
 # Or use up-and-test
 make up-and-test  # Starts services, then runs all tests
+                 # Optionally runs endpoint tests if AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true
 ```
 
-See [`scripts/entrypoint.sh`](scripts/entrypoint.sh) for implementation details.
+### Endpoint Tests on Boot
+
+The `make up-and-test` command can optionally run endpoint tests after completing unit and integration tests.
+
+**To enable endpoint tests on boot**, add to your `.env`:
+```bash
+AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true
+```
+
+**What happens:**
+1. `make up-and-test` starts services
+2. Runs unit and integration tests
+3. If `AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true`, runs `make test-endpoints` (full suite: Make + REST API)
+4. Verifies all ingest, query, and infer endpoints work correctly
+
+**Note:** Endpoint tests on boot are **optional** and disabled by default. They add a few minutes to the startup process but provide comprehensive verification that all endpoints are working.
+
+See [`scripts/entrypoint.sh`](scripts/entrypoint.sh) for implementation details on startup tests.
 
 ## Endpoint Testing Automation
 

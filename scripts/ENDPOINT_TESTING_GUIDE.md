@@ -23,7 +23,17 @@ make test-endpoints
 ```
 Tests all endpoints via both Make commands and REST API - comprehensive coverage.
 
-**Option C: Individual Test Scripts**
+**Option C: Automatic on Boot**
+```bash
+# Set in .env
+AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true
+
+# Then run
+make up-and-test
+```
+This will automatically run `make test-endpoints` (full suite: Make + REST API) after unit and integration tests complete.
+
+**Option D: Individual Test Scripts**
 ```bash
 # Test via Make commands only
 make test-endpoints-make

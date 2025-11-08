@@ -418,7 +418,7 @@ brew install tesseract poppler
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/omoral02/deep_rag.git
+git clone https://github.com/scmclimited/deep_rag.git
 cd deep_rag
 ```
 

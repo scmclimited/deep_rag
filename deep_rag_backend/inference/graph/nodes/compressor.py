@@ -13,6 +13,7 @@ agent_log = get_agent_logger()
 def node_compressor(state: GraphState) -> GraphState:
     logger.info("-" * 40)
     logger.info("GRAPH NODE: Compressor - Summarizing evidence")
+    logger.info(f"State snapshot → iterations={state.get('iterations', 0)}, evidence_chunks={len(state.get('evidence', []))}")
     logger.info("-" * 40)
     logger.info(f"Compressing {len(state.get('evidence', []))} chunks into notes...")
     

@@ -15,6 +15,11 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
     """Optional additional retrieve step driven by critic's refinements."""
     logger.info("-" * 40)
     logger.info("GRAPH NODE: Refine Retriever - Fetching additional chunks from refinements")
+    logger.info(
+        "State snapshot → iterations=%s, pending_refinements=%s",
+        state.get('iterations', 0),
+        state.get('refinements', []),
+    )
     logger.info("-" * 40)
     
     refinements = state.get("refinements", [])

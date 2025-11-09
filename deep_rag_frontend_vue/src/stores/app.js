@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import axios from 'axios'
 import { apiService } from '../services/api'
 
@@ -10,15 +10,15 @@ export const useAppStore = defineStore('app', () => {
   const userId = ref(null)
   const userIdEntered = ref(false)
   const currentThreadId = ref(null)
-  const threads = ref({}) // { threadId: { messages, created_at, active_doc_ids, cross_doc, selectionTouched } }
+  const threads = ref({}) // { threadId: { messages, created_at, active_doc_ids, cross_doc, selectionTouched, is_processing } }
   const messages = ref([]) // Current thread messages
   const documents = ref([])
   const selectedDocIds = ref([]) // Multi-document selection
   const crossDocSearch = ref(false)
-  const pendingAttachment = ref(null)
   const processedDocIds = ref(new Set())
   const activeQueries = ref({}) // { threadId: { status, query } }
   const ingesting = ref(false)
+  const pendingAttachmentsMap = ref({}) // { threadId: File[] }
   
   function ensureThreadEntry(threadId) {
     if (!threadId) return null
@@ -30,7 +30,11 @@ export const useAppStore = defineStore('app', () => {
         active_doc_ids: [],
         persisted: false,
         cross_doc: false,
-        selectionTouched: false
+        selectionTouched: false,
+        is_processing: false
+      }
+      if (!pendingAttachmentsMap.value[threadId]) {
+        pendingAttachmentsMap.value[threadId] = []
       }
       return threads.value[threadId]
     }
@@ -49,6 +53,12 @@ export const useAppStore = defineStore('app', () => {
     if (typeof existing.persisted !== 'boolean') {
       existing.persisted = !!existing.persisted
     }
+    if (!pendingAttachmentsMap.value[threadId]) {
+      pendingAttachmentsMap.value[threadId] = []
+    }
+    if (!Object.prototype.hasOwnProperty.call(existing, 'is_processing')) {
+      existing.is_processing = false
+    }
     return existing
   }
   
@@ -62,6 +72,18 @@ export const useAppStore = defineStore('app', () => {
     if (!currentThreadId.value) return []
     const thread = threads.value[currentThreadId.value]
     return thread?.active_doc_ids || []
+  })
+
+  const pendingAttachments = computed(() => {
+    if (!currentThreadId.value) return []
+    const attachments = pendingAttachmentsMap.value[currentThreadId.value]
+    return Array.isArray(attachments) ? attachments : []
+  })
+
+  const isProcessingCurrentThread = computed(() => {
+    if (!currentThreadId.value) return false
+    const thread = threads.value[currentThreadId.value]
+    return !!thread?.is_processing
   })
   
   // Actions
@@ -81,10 +103,14 @@ export const useAppStore = defineStore('app', () => {
       active_doc_ids: [],
       persisted: false,
       cross_doc: crossDocSearch.value,
-      selectionTouched: false
+      selectionTouched: false,
+      is_processing: false
+    }
+    pendingAttachmentsMap.value = {
+      ...pendingAttachmentsMap.value,
+      [newThreadId]: []
     }
     selectedDocIds.value = []
-    pendingAttachment.value = null
     if (userId.value) {
       try {
         const result = await apiService.seedThread(newThreadId, userId.value)
@@ -99,19 +125,22 @@ export const useAppStore = defineStore('app', () => {
   }
   
   function switchThread(threadId) {
+    // With KeepAlive and per-thread components, we don't need to sync messages
+    // Each thread component reads directly from threads[threadId].messages
+    // Just update the current thread ID and global UI state
     currentThreadId.value = threadId
     if (!threadId) {
       messages.value = []
       crossDocSearch.value = false
       selectedDocIds.value = []
-      pendingAttachment.value = null
       return
     }
+    
+    // Load thread's UI state (cross-doc toggle, selected docs)
     const threadEntry = ensureThreadEntry(threadId)
-    messages.value = [...(threadEntry?.messages || [])]
+    messages.value = [...(threadEntry?.messages || [])] // Keep for backward compatibility
     crossDocSearch.value = !!threadEntry?.cross_doc
     selectedDocIds.value = [...(threadEntry?.active_doc_ids || [])]
-    pendingAttachment.value = null
   }
   
   function addMessage(message, targetThreadId = currentThreadId.value) {
@@ -123,8 +152,14 @@ export const useAppStore = defineStore('app', () => {
       return
     }
     threadEntry.cross_doc = crossDocSearch.value
+    const messagePayload = {
+      ...message,
+      attachments: Array.isArray(message.attachments)
+        ? [...message.attachments]
+        : message.attachments
+    }
     const existing = threadEntry.messages || []
-    const updated = [...existing, message]
+    const updated = [...existing, messagePayload]
     threadEntry.messages = updated
     if (currentThreadId.value === targetThreadId) {
       messages.value = [...updated]
@@ -148,22 +183,8 @@ export const useAppStore = defineStore('app', () => {
           const threadEntry = ensureThreadEntry(threadId)
           threadEntry.persisted = true
           threadEntry.created_at = threadEntry.created_at || thread.created_at
-          if (
-            !threadEntry.selectionTouched &&
-            Array.isArray(threadEntry.active_doc_ids) &&
-            threadEntry.active_doc_ids.length === 0
-          ) {
-            const docIdsFromThread = Array.isArray(thread.doc_ids) ? thread.doc_ids : []
-            if (docIdsFromThread.length > 0) {
-              threadEntry.active_doc_ids = [...docIdsFromThread]
-              if (
-                currentThreadId.value === threadId &&
-                selectedDocIds.value.length === 0
-              ) {
-                selectedDocIds.value = [...docIdsFromThread]
-              }
-            }
-          }
+          // Don't auto-select documents from thread history
+          // Users must explicitly select documents they want to query
         })
         console.log('Store loadThreads: Updated', response.data.threads.length, 'threads in store')
       } else {
@@ -212,12 +233,87 @@ export const useAppStore = defineStore('app', () => {
     selectedDocIds.value = [...docIds]
   }
   
-  function setPendingAttachment(file) {
-    pendingAttachment.value = file
+  function resetAttachmentInput() {
+    if (typeof document === 'undefined') return
+    const input = document.querySelector('input[type="file"][data-attachment-input]')
+    if (input) {
+      input.value = ''
+    }
   }
-  
-  function clearPendingAttachment() {
-    pendingAttachment.value = null
+
+  function addPendingAttachments(files, threadId = currentThreadId.value) {
+    console.log('addPendingAttachments called:', { files, threadId, filesCount: files?.length })
+    if (!threadId) {
+      console.warn('addPendingAttachments: No threadId provided')
+      return
+    }
+    ensureThreadEntry(threadId)
+    const incoming = Array.isArray(files) ? files : [files]
+    const normalized = incoming.filter(Boolean)
+    console.log('addPendingAttachments: normalized files:', normalized.length, normalized.map(f => f.name))
+    
+    const current = Array.isArray(pendingAttachmentsMap.value[threadId])
+      ? pendingAttachmentsMap.value[threadId]
+      : []
+    
+    // Create a file signature for deduplication (name + size + lastModified)
+    const getFileSignature = (file) => `${file.name}|${file.size}|${file.lastModified}`
+    const currentSignatures = new Set(current.map(getFileSignature))
+    
+    // Filter out duplicates
+    const uniqueNewFiles = normalized.filter(file => {
+      const signature = getFileSignature(file)
+      if (currentSignatures.has(signature)) {
+        console.warn('addPendingAttachments: Duplicate file detected, skipping:', file.name)
+        return false
+      }
+      return true
+    })
+    
+    if (uniqueNewFiles.length < normalized.length) {
+      const duplicateCount = normalized.length - uniqueNewFiles.length
+      console.log(`addPendingAttachments: Filtered out ${duplicateCount} duplicate file(s)`)
+    }
+    
+    pendingAttachmentsMap.value[threadId] = [...current, ...uniqueNewFiles]
+    console.log('addPendingAttachments: Updated map for thread', threadId, ':', pendingAttachmentsMap.value[threadId].length, 'files')
+    nextTick(resetAttachmentInput)
+    
+    return uniqueNewFiles.length
+  }
+
+  function removePendingAttachment(index, threadId = currentThreadId.value) {
+    if (!threadId) return
+    ensureThreadEntry(threadId)
+    const current = Array.isArray(pendingAttachmentsMap.value[threadId])
+      ? pendingAttachmentsMap.value[threadId]
+      : []
+    if (index < 0 || index >= current.length) return
+    pendingAttachmentsMap.value[threadId] = [
+      ...current.slice(0, index),
+      ...current.slice(index + 1)
+    ]
+    nextTick(resetAttachmentInput)
+  }
+
+  function clearPendingAttachments(threadId = currentThreadId.value) {
+    if (!threadId) return
+    ensureThreadEntry(threadId)
+    pendingAttachmentsMap.value[threadId] = []
+    nextTick(resetAttachmentInput)
+  }
+
+  function setThreadProcessing(threadId, value) {
+    if (!threadId) return
+    const threadEntry = ensureThreadEntry(threadId)
+    if (!threadEntry) return
+    threadEntry.is_processing = value
+  }
+
+  function isThreadProcessing(threadId = currentThreadId.value) {
+    if (!threadId) return false
+    const threadEntry = threads.value[threadId]
+    return !!threadEntry?.is_processing
   }
   
   function markDocProcessed(docId) {
@@ -247,13 +343,15 @@ export const useAppStore = defineStore('app', () => {
     documents,
     selectedDocIds,
     crossDocSearch,
-    pendingAttachment,
     processedDocIds,
     activeQueries,
     ingesting,
+    pendingAttachmentsMap, // Export raw map for per-thread access
     // Computed
     currentThread,
     activeDocIdsForThread,
+    pendingAttachments,
+    isProcessingCurrentThread,
     // Actions
     setUserId,
     createNewThread,
@@ -263,8 +361,11 @@ export const useAppStore = defineStore('app', () => {
     loadDocuments,
     deleteDocument,
     setActiveDocIds,
-    setPendingAttachment,
-    clearPendingAttachment,
+    addPendingAttachments,
+    removePendingAttachment,
+    clearPendingAttachments,
+    setThreadProcessing,
+    isThreadProcessing,
     markDocProcessed,
     isDocProcessed
   }

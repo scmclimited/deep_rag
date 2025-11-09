@@ -55,6 +55,8 @@
           ref="fileInput"
           @change="handleFileSelect"
           accept=".pdf,.txt,.png,.jpg,.jpeg"
+          multiple
+          data-attachment-input
           class="hidden"
         />
         <button
@@ -65,13 +67,28 @@
         </button>
         <p class="text-xs text-gray-400 mt-2">Limit 200MB per file • PDF, TXT, PNG, JPG, JPEG</p>
       </div>
-      <div v-if="store.pendingAttachment" class="mt-3 p-3 bg-dark-bg rounded-lg flex items-center justify-between">
-        <span class="text-sm truncate flex-1">{{ store.pendingAttachment.name }}</span>
-        <button
-          @click="store.clearPendingAttachment()"
-          class="text-xs text-red-400 hover:text-red-300 ml-2 transition-colors"
+      <div
+        v-if="pendingAttachments.length > 0"
+        class="mt-3 space-y-2"
+      >
+        <div
+          v-for="(attachment, index) in pendingAttachments"
+          :key="`${attachment.name}-${index}`"
+          class="p-3 bg-dark-bg rounded-lg flex items-center justify-between border border-dark-border"
         >
-          ✕ Clear
+          <span class="text-sm truncate flex-1">{{ attachment.name }}</span>
+          <button
+            @click="store.removePendingAttachment(index, props.threadId)"
+            class="text-xs text-red-400 hover:text-red-300 ml-2 transition-colors"
+          >
+            ✕ Remove
+          </button>
+        </div>
+        <button
+          @click="store.clearPendingAttachments(props.threadId)"
+          class="text-xs text-gray-400 hover:text-white transition-colors"
+        >
+          Clear all
         </button>
       </div>
     </div>
@@ -97,7 +114,8 @@
         type="text"
         :placeholder="isProcessing ? 'Thinking...' : 'Ask a question...'"
         class="flex-1 px-5 py-3.5 bg-dark-surface border border-dark-border rounded-xl text-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
-        @keyup.enter="sendMessage"
+        @keyup.enter="handleEnterKey"
+        :disabled="isProcessing"
       />
       <div v-if="isProcessing" class="flex items-center gap-2 text-sm text-blue-400 px-3">
         <span class="animate-pulse">⏳</span>
@@ -105,7 +123,7 @@
       </div>
       <button
         @click="sendMessage"
-        :disabled="isProcessing || store.ingesting || (!inputText.trim() && !store.pendingAttachment)"
+        :disabled="!canSend"
         class="p-3.5 bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         title="Send message"
       >
@@ -116,19 +134,42 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, defineProps } from 'vue'
 import { useAppStore } from '../stores/app'
 import { apiService } from '../services/api'
+
+const props = defineProps({
+  threadId: {
+    type: String,
+    required: true
+  }
+})
 
 const store = useAppStore()
 const inputText = ref('')
 const showAttachment = ref(false)
 const showIngestion = ref(false)
-const isProcessing = ref(false)
 const fileInput = ref(null)
 const ingestFileInput = ref(null)
 const ingestingFile = ref(false)
 const ingestionQueue = ref([])
+
+// Use computed to maintain reactivity with store for THIS thread
+const pendingAttachments = computed(() => {
+  const attachments = store.pendingAttachmentsMap?.[props.threadId]
+  return Array.isArray(attachments) ? attachments : []
+})
+const isProcessing = computed(() => {
+  const thread = store.threads[props.threadId]
+  return !!thread?.is_processing
+})
+const canSend = computed(() => {
+  const hasQuestion = inputText.value.trim().length > 0
+  if (!hasQuestion) return false
+  if (isProcessing.value) return false
+  if (store.ingesting) return false
+  return true
+})
 
 function toggleAttachment() {
   showAttachment.value = !showAttachment.value
@@ -144,10 +185,38 @@ function toggleIngestion() {
   }
 }
 
-function handleFileSelect(event) {
-  const file = event.target.files[0]
-  if (file) {
-    store.setPendingAttachment(file)
+function handleEnterKey() {
+  // Only send message if canSend is true (respects all validation logic)
+  if (canSend.value) {
+    sendMessage()
+  } else {
+    console.log('handleEnterKey: Cannot send message, canSend is false')
+  }
+}
+
+async function handleFileSelect(event) {
+  console.log('handleFileSelect called, event:', event)
+  const files = Array.from(event.target.files || [])
+  console.log('handleFileSelect: files selected:', files.length, files.map(f => f.name))
+  if (!files.length) {
+    console.warn('handleFileSelect: No files selected')
+    return
+  }
+  // Use the thread ID from props (this component is bound to a specific thread)
+  const threadId = props.threadId
+  console.log('handleFileSelect: Using threadId from props:', threadId)
+  console.log('handleFileSelect: Calling addPendingAttachments with', files.length, 'files for thread', threadId)
+  const addedCount = store.addPendingAttachments(files, threadId)
+  console.log('handleFileSelect: After addPendingAttachments, pendingAttachments:', pendingAttachments.value)
+  
+  // Notify user if duplicates were filtered out
+  if (addedCount < files.length) {
+    const duplicateCount = files.length - addedCount
+    alert(`${duplicateCount} duplicate file(s) were not added. Each file can only be attached once.`)
+  }
+  
+  if (event.target) {
+    event.target.value = ''
   }
 }
 
@@ -195,25 +264,32 @@ async function sendMessage() {
     return
   }
 
-  if (!inputText.value.trim() && !store.pendingAttachment) return
-  
   const question = inputText.value.trim()
-  if (!question && !store.pendingAttachment) return
+  const attachments = Array.isArray(pendingAttachments.value)
+    ? [...pendingAttachments.value]
+    : pendingAttachments.value
+      ? [pendingAttachments.value]
+      : []
+  const hasAttachments = attachments.length > 0
+
+  if (!question) {
+    if (hasAttachments) {
+      alert('Please add a question before sending an attachment.')
+    }
+    return
+  }
   
   const wasCrossDocQuery = !!store.crossDocSearch
   const previousSelectedDocIds = [...store.selectedDocIds]
   
-  isProcessing.value = true
-  
   // Store the question before clearing input
-  const questionToSend = question || `[File: ${store.pendingAttachment?.name}]`
+  const questionToSend = question
   let responseDocIds = []
   
-  // Get or create thread ID FIRST (before adding message, as createNewThread clears messages)
-  let threadId = store.currentThreadId
-  if (!threadId) {
-    threadId = await store.createNewThread()
-  }
+  // Use the thread ID from props (this component is bound to a specific thread)
+  const threadId = props.threadId
+  console.log('sendMessage: Using threadId from props:', threadId)
+  store.setThreadProcessing(threadId, true)
   
   // Add user message to chat IMMEDIATELY (after thread is created)
   // This ensures the message appears in the chat window right away
@@ -223,47 +299,39 @@ async function sendMessage() {
     role: 'user',
     content: questionToSend,
     timestamp: new Date().toISOString(),
-    attachment: store.pendingAttachment?.name
+    attachments: hasAttachments ? attachments.map(file => file.name) : []
   }, targetThreadId)
   
   // Clear input immediately after adding message to chat
   inputText.value = ''
   
   try {
-    
     // Determine doc_ids to use for multi-document selection
     let selectedDocIds = []
-    if (store.pendingAttachment) {
-      // Will use doc_id from response
-      selectedDocIds = []
-    } else if (!store.crossDocSearch) {
+    if (!hasAttachments && !store.crossDocSearch) {
       // When cross_doc=False, ONLY use selected_doc_ids (explicit user selection)
       // Don't fall back to activeDocIdsForThread - if user deselected, respect that
       selectedDocIds = store.selectedDocIds || []
     }
     // When cross_doc=True, selectedDocIds remains empty (search all)
-    
+
     // Send request
     let response
-    if (store.pendingAttachment) {
-      // Determine doc_ids to use for multi-document selection (same logic as askGraph)
-      let selectedDocIds = []
+    if (hasAttachments) {
+      let attachmentSelectedDocIds = []
       if (!store.crossDocSearch) {
-        // When cross_doc=False, ONLY use selected_doc_ids (explicit user selection)
-        selectedDocIds = store.selectedDocIds || []
+        attachmentSelectedDocIds = store.selectedDocIds || []
       }
-      // When cross_doc=True, selectedDocIds remains empty (search all)
-      
       response = await apiService.inferGraph(
         questionToSend,
         threadId,
-        store.pendingAttachment,
+        attachments,
         null,
         store.crossDocSearch,
         store.userId,  // Pass user_id for thread tracking
-        selectedDocIds  // Pass selected doc_ids for multi-document selection
+        attachmentSelectedDocIds  // Pass selected doc_ids for multi-document selection
       )
-      store.clearPendingAttachment()
+      store.clearPendingAttachments(targetThreadId)
       
       // DON'T auto-select documents after ingestion - let user explicitly select them
       // Only update activeDocIds if user has explicitly selected documents
@@ -284,6 +352,9 @@ async function sendMessage() {
     }
     
     responseDocIds = response.doc_ids || (response.doc_id ? [response.doc_id] : [])
+    if ((!responseDocIds || responseDocIds.length === 0) && Array.isArray(response.uploaded_doc_ids)) {
+      responseDocIds = [...response.uploaded_doc_ids]
+    }
     
     // Add assistant message with doc_ids and pages
     store.addMessage({
@@ -297,15 +368,6 @@ async function sendMessage() {
       confidence: response.confidence,
       action: response.action
     }, targetThreadId)
-    
-    if (
-      !wasCrossDocQuery &&
-      previousSelectedDocIds.length === 0 &&
-      store.selectedDocIds.length === 0 &&
-      responseDocIds.length > 0
-    ) {
-      store.setActiveDocIds(responseDocIds)
-    }
     
     // Auto-reload documents after submission
     store.loadDocuments()
@@ -328,7 +390,7 @@ async function sendMessage() {
       error: true
     }, targetThreadId)
   } finally {
-    isProcessing.value = false
+    store.setThreadProcessing(targetThreadId, false)
   }
 }
 </script>

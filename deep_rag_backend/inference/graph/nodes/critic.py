@@ -15,6 +15,7 @@ agent_log = get_agent_logger()
 def node_critic(state: GraphState) -> GraphState:
     logger.info("-" * 40)
     logger.info("GRAPH NODE: Critic - Evaluating evidence quality")
+    logger.info(f"State snapshot → iterations={state.get('iterations', 0)}, evidence_chunks={len(state.get('evidence', []))}")
     logger.info("-" * 40)
     
     ev = state.get("evidence", [])
@@ -82,7 +83,12 @@ Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & D
         if conf >= 0.6:
             logger.info(f"Confidence {conf:.2f} >= 0.6 - Routing to synthesizer")
         else:
-            logger.warning(f"Max iterations ({MAX_ITERS}) reached with confidence {conf:.2f}")
+            logger.warning(
+                "Max iterations (%s) reached. Critic heuristic confidence (0-1 scale): %.2f. "
+                "The synthesizer will compute final user-facing confidence (percentage) next.",
+                MAX_ITERS,
+                conf,
+            )
     logger.info("-" * 40)
     return result
 

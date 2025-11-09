@@ -16,6 +16,12 @@ agent_log = get_agent_logger()
 def node_synthesizer(state: GraphState) -> GraphState:
     logger.info("-" * 40)
     logger.info("GRAPH NODE: Synthesizer - Generating final answer")
+    logger.info(
+        "State snapshot → iterations=%s, evidence_chunks=%s, action=%s",
+        state.get('iterations', 0),
+        len(state.get('evidence', []) or []),
+        state.get('action'),
+    )
     logger.info("-" * 40)
     
     # Handle None evidence properly
@@ -72,6 +78,8 @@ def node_synthesizer(state: GraphState) -> GraphState:
     
     top_doc_ids: List[str] = []
     if doc_stats:
+        # Include ALL documents that appear in the top evidence chunks
+        # Sort by count (number of chunks) and score, but don't filter to just the best
         sorted_docs = sorted(
             doc_stats.items(),
             key=lambda item: (
@@ -80,20 +88,17 @@ def node_synthesizer(state: GraphState) -> GraphState:
                 item[1]["first_index"]
             )
         )
-        if sorted_docs:
-            best_score = float(sorted_docs[0][1]["score"])
-            top_doc_ids = [
-                doc for doc, stats in sorted_docs
-                if abs(float(stats["score"]) - best_score) < 1e-6
-            ]
-        logger.info(f"Top document(s) selected for synthesis: {top_doc_ids}")
+        # Include all documents that contributed to the evidence
+        top_doc_ids = [doc for doc, stats in sorted_docs]
+        logger.info(f"Documents in top evidence (sorted by relevance): {top_doc_ids}")
+        
         if selection_doc and selection_doc in doc_stats:
             doc_id = selection_doc
-            top_doc_ids = [selection_doc]
+            # Don't override top_doc_ids - keep all documents for citations
             logger.info(f"Using explicitly selected document: {doc_id}")
         elif not doc_id and top_doc_ids:
             doc_id = top_doc_ids[0]
-            logger.info(f"Using document ID: {doc_id}...")
+            logger.info(f"Primary document ID: {doc_id}...")
     
     # Calculate overall confidence using multi-feature approach
     question = state.get('question', '')

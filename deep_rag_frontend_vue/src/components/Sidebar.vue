@@ -316,12 +316,19 @@ async function handleCreateNewThread() {
 async function switchToThread(threadId) {
   console.log('switchToThread: Switching to thread:', threadId)
   try {
-    // Always load thread history when switching (even if cached)
+    // Switch thread first (this preserves current thread state)
     store.switchThread(threadId)
-    console.log('switchToThread: Store switched to thread, loading history')
-    // Load thread history to ensure it's up to date
-    await loadThreadHistory(threadId)
-    console.log('switchToThread: Thread history loaded successfully')
+    console.log('switchToThread: Store switched to thread')
+    
+    // Only load from API if thread is persisted
+    const threadEntry = store.threads?.[threadId]
+    if (threadEntry && threadEntry.persisted !== false) {
+      console.log('switchToThread: Loading thread history from API')
+      await loadThreadHistory(threadId)
+      console.log('switchToThread: Thread history loaded successfully')
+    } else {
+      console.log('switchToThread: Thread not persisted yet, using local cache')
+    }
   } catch (error) {
     console.error('switchToThread: Error switching thread:', error)
   }
@@ -339,7 +346,7 @@ async function loadThreadHistory(threadId) {
   }
   try {
     const result = await apiService.getThread(threadId, store.userId)
-    if (result?.messages) {
+    if (result?.messages !== undefined) {
       // Update thread in store (always, regardless of active state)
       if (!store.threads[threadId]) {
         store.threads[threadId] = {
@@ -351,11 +358,25 @@ async function loadThreadHistory(threadId) {
       } else {
         store.threads[threadId].persisted = true
       }
-      // Always update thread messages in store
-      store.threads[threadId].messages = result.messages
-      // Also update current messages if this is the active thread
-      if (store.currentThreadId === threadId) {
-        store.messages = [...result.messages]
+      
+      // Only overwrite local messages if backend has MORE messages than local
+      // This prevents losing local messages when backend hasn't synced yet
+      const localMessages = store.threads[threadId].messages || []
+      const backendMessages = result.messages || []
+      
+      if (backendMessages.length > localMessages.length) {
+        // Backend has more messages - use backend (it's more up-to-date)
+        console.log(`loadThreadHistory: Backend has ${backendMessages.length} messages, local has ${localMessages.length}, using backend`)
+        store.threads[threadId].messages = backendMessages
+        if (store.currentThreadId === threadId) {
+          store.messages = [...backendMessages]
+        }
+      } else {
+        // Keep local messages if they're equal or more than backend
+        console.log(`loadThreadHistory: Keeping ${localMessages.length} local messages, backend has ${backendMessages.length}`)
+        if (store.currentThreadId === threadId) {
+          store.messages = [...localMessages]
+        }
       }
     }
   } catch (error) {

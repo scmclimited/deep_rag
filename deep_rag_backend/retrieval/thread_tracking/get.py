@@ -3,10 +3,65 @@ Retrieve thread interactions from the database.
 """
 import json
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from retrieval.db_utils import connect
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_json_load(field_name: str, value: Union[str, bytes, bytearray, Dict[str, Any], List[Any], None]) -> Optional[Any]:
+    """
+    Safely load JSON data that might already be decoded or stored as bytes.
+
+    Args:
+        field_name: Name of the field (for logging).
+        value: Raw value from the database.
+
+    Returns:
+        Parsed JSON object or None.
+    """
+    if value is None:
+        return None
+
+    # Already decoded (dict/list) – return as-is
+    if isinstance(value, (dict, list)):
+        return value
+
+    # Decode bytes/bytearray
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            value = value.decode("utf-8")
+        except Exception:
+            logger.warning("get_thread_interactions: Failed to decode bytes for field '%s'", field_name, exc_info=True)
+            return None
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            logger.warning(
+                "get_thread_interactions: Failed to json.loads field '%s'. Returning raw string.",
+                field_name,
+                exc_info=True,
+            )
+            return stripped
+        except TypeError:
+            logger.warning(
+                "get_thread_interactions: TypeError when loading JSON for field '%s'. Returning raw string.",
+                field_name,
+                exc_info=True,
+            )
+            return stripped
+
+    logger.warning(
+        "get_thread_interactions: Unexpected type '%s' for field '%s'. Returning value as-is.",
+        type(value),
+        field_name,
+    )
+    return value
 
 
 def get_thread_interactions(
@@ -62,6 +117,10 @@ def get_thread_interactions(
             logger.info(f"get_thread_interactions: Query returned {len(rows)} rows")
             results = []
             for row in rows:
+                graphstate = _safe_json_load("graphstate", row[6])
+                ingestion_meta = _safe_json_load("ingestion_meta", row[7])
+                metadata = _safe_json_load("metadata", row[11])
+
                 results.append({
                     "id": row[0],
                     "user_id": row[1],
@@ -69,12 +128,12 @@ def get_thread_interactions(
                     "query_text": row[3],
                     "doc_ids": row[4],
                     "final_answer": row[5],
-                    "graphstate": json.loads(row[6]) if row[6] else None,
-                    "ingestion_meta": json.loads(row[7]) if row[7] else None,
+                    "graphstate": graphstate,
+                    "ingestion_meta": ingestion_meta,
                     "entry_point": row[8],
                     "pipeline_type": row[9],
                     "cross_doc": row[10],
-                    "metadata": json.loads(row[11]) if row[11] else None,
+                    "metadata": metadata,
                     "created_at": row[12].isoformat() if row[12] else None,
                     "completed_at": row[13].isoformat() if row[13] else None
                 })

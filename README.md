@@ -5,9 +5,7 @@ It combines deterministic PDF parsing with hybrid (lexical + vector) retrieval, 
 
 ---
 
-# 🚀 Quick Start
-
-## Project Structure
+# Project Structure
 
 The project is organized into separate backend and frontend components:
 
@@ -45,348 +43,6 @@ deep_rag/                          # Project root
 └── README.md                      # This file
 ```
 
-## Docker Deployment
-
-All Docker images use **Python 3.11** to ensure compatibility with Google Gemini SDK.
-
-### Full Stack (Recommended)
-
-Run all three services together (database, backend API, frontend):
-
-```bash
-# From project root (deep_rag/)
-docker-compose up -d
-
-# Services will be available at:
-# - Frontend: http://localhost:8501
-# - Backend API: http://localhost:8000
-# - Database: localhost:5432
-```
-
-**View logs:**
-```bash
-# All services
-docker-compose logs -f
-
-# Specific service
-docker-compose logs -f api
-docker-compose logs -f frontend
-docker-compose logs -f db
-```
-
-**Stop services:**
-```bash
-docker-compose down
-```
-
-### Independent Services
-
-Each service can run independently with its own `docker-compose.yml`:
-
-**Backend Only:**
-```bash
-cd deep_rag_backend
-docker-compose up -d
-# Backend API: http://localhost:8000
-# Note: Requires database to be running separately
-```
-
-**Frontend Only:**
-```bash
-cd deep_rag_frontend
-docker-compose up -d
-# Frontend: http://localhost:8501
-# Note: Requires backend API to be running
-# Set API_BASE_URL in .env to point to backend
-```
-
-**Database Only:**
-```bash
-cd vector_db
-docker-compose up -d
-# Database: localhost:5432
-# Note: Other services can connect to this database
-```
-
-## Environment Setup
-
-<details>
-<summary><strong>Root `.env` File (Full Stack)</strong> - Click to expand</summary>
-
-Create `.env` file in project root (`deep_rag/`):
-
-```bash
-# Copy example file
-cp .env.example .env
-
-# Edit .env and fill in required values:
-#   - Database credentials (DB_USER, DB_PASS, DB_NAME)
-#   - LLM API key (GEMINI_API_KEY)
-#   - Embedding model (CLIP_MODEL, EMBEDDING_DIM)
-#   - Frontend configuration (API_BASE_URL, FRONTEND_PORT)
-```
-
-**Required Variables:**
-- **Database**: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`
-- **LLM**: `LLM_PROVIDER`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `LLM_TEMPERATURE`
-- **Embeddings**: `CLIP_MODEL`, `EMBEDDING_DIM`
-
-**Optional Variables:**
-- **Startup Tests**: `RUN_TESTS_ON_STARTUP` (set to `true` to run database schema tests on container startup)
-- **Endpoint Tests on Boot**: `AUTOMATE_ENDPOINT_RUNS_ON_BOOT` (set to `true` to run endpoint tests after `make up-and-test`)
-
-See [`md_guides/ENVIRONMENT_SETUP.md`](md_guides/ENVIRONMENT_SETUP.md) for detailed configuration options.
-
-</details>
-
-<details>
-<summary><strong>Component-Specific `.env` Files (Independent Services)</strong> - Click to expand</summary>
-
-If running services independently, create component-specific `.env` files:
-
-**Backend `.env` (from `deep_rag_backend/` directory):**
-```bash
-cd deep_rag_backend
-cp .env.example .env
-# Edit with backend-specific values
-```
-
-**Frontend `.env` (from `deep_rag_frontend/` directory):**
-```bash
-cd deep_rag_frontend
-cp .env.example .env
-# Edit with frontend-specific values (API_BASE_URL)
-```
-
-**Database `.env` (from `vector_db/` directory):**
-```bash
-cd vector_db
-cp .env.example .env
-# Edit with database credentials
-```
-
-**Note:** Never commit `.env` files to git - they contain sensitive information.
-
-</details>
-
----
-
-# 🎯 Entry Points
-
-The Deep RAG system provides multiple entry points (CLI, Make, TOML, REST API) for different use cases:
-
-## Entry Point Mapping Table
-
-| CLI Command | Make Script | REST Endpoint | Pipeline | Purpose |
-|------------|-------------|---------------|----------|---------|
-| `ingest` | `make cli-ingest` | `POST /ingest` | Direct | **Ingestion only**: Embeds documents into vector DB without querying. Use when you want to pre-populate your knowledge base. |
-| `query` | `make query` | `POST /ask` | Direct (`deep_rag_backend/inference/agents/pipeline.py`) | **Query only (direct pipeline)**: Fast, deterministic pipeline for simple queries. No conditional routing. Best for straightforward questions. Supports `--doc-id` and `--cross-doc` flags. |
-| `query-graph` | `make query-graph` | `POST /ask-graph` | LangGraph | **Query only (LangGraph)**: Agentic pipeline with conditional routing. Agents can refine queries and retrieve more evidence if confidence is low. Best for complex questions requiring iterative reasoning. Supports `--doc-id`, `--thread-id`, and `--cross-doc` flags. |
-| `infer` | `make infer` | `POST /infer` | Direct (`deep_rag_backend/inference/agents/pipeline.py`) | **Ingest + Query (direct pipeline)**: Combined ingestion and querying in one operation. Use when you have a document and want immediate answers with fast, deterministic processing. Supports `--file`, `--title`, and `--cross-doc` flags. |
-| `infer-graph` | `make infer-graph` | `POST /infer-graph` | LangGraph | **Ingest + Query (LangGraph)**: Combined ingestion with agentic reasoning. Best when you need to ingest and then perform complex reasoning over the new content. Supports `--file`, `--title`, `--thread-id`, and `--cross-doc` flags. |
-| `health` | `make health` | `GET /health` | - | **Health check**: Verifies database connectivity and service availability. |
-| `graph` | `make graph` | `GET /graph` | LangGraph | **Graph export**: Exports LangGraph pipeline visualization as PNG or Mermaid diagram. Useful for understanding the agentic flow. |
-| `inspect` | `make inspect` | `GET /diagnostics/document` | - | **Document diagnostics**: Inspects what chunks and pages are stored for a document. Shows page distribution, chunk counts, and sample text. Essential for debugging ingestion and retrieval issues. |
-| `test` | `make test` | - | ALL | **Testing**: Run all tests (unit + integration). Supports `--docker` flag. |
-| `test unit` | `make unit-tests` | - | ALL | **Unit tests only**: Run unit tests for individual modules. Supports `--docker` flag. |
-| `test integration` | `make integration-tests` | - | - | **Integration tests only**: Run integration tests for end-to-end workflows. Supports `--docker` flag. |
-| - | `make test-endpoints` | ALL | - | **Endpoint testing**: Test all ingest/query/infer endpoints (Make + REST). Verifies all endpoints work correctly. |
-| - | `make test-endpoints-quick` | ALL | - | **Quick endpoint test**: Test one example of each endpoint type. Fast verification. |
-
-### Pipeline Comparison
-
-- **Direct Pipeline** (`deep_rag_backend/inference/agents/pipeline.py`): Linear execution, faster, deterministic. Best for simple queries.
-- **LangGraph Pipeline** (`deep_rag_backend/inference/graph/builder.py`): Conditional routing, agents can refine queries, iterative retrieval. Best for complex questions requiring multi-step reasoning.
-
-For detailed scenarios and use cases for each entry point, see [`md_guides/ENTRY_POINTS_AND_SCENARIOS.md`](md_guides/ENTRY_POINTS_AND_SCENARIOS.md).
-
----
-
-# 🚀 Features
-
-| Layer | Description |
-|-------|--------------|
-| **Ingestion** | Multi-modal ingestion: PDFs (text + OCR), plain text files, and images (PNG/JPEG). Extracts text using PyMuPDF (`fitz`) with OCR fallback (`pytesseract`). Chunks and embeds with **CLIP-ViT-L/14** (`sentence-transformers/clip-ViT-L-14`) into unified **768-dimensional vectors** in Postgres + pgvector. **Upgraded from ViT-B/32 (512 dims)** for better semantic representation. |
-| **Retrieval** | Hybrid search combining pg_trgm (BM25-style) lexical scores + vector similarity (cosine distance). Reranked by a cross-encoder (`bge-reranker-base`). Supports multi-modal queries (text + images). Dynamically supports 512 or 768 dimensional embeddings. **Supports two-stage retrieval with `--cross-doc` flag** for cross-document semantic search. |
-| **Agentic Loop** | Two pipeline options: (1) **Direct pipeline** (`deep_rag_backend/inference/agents/pipeline.py`): Linear execution (plan → retrieve → compress → reflect → synthesize). (2) **LangGraph pipeline** (`deep_rag_backend/inference/graph/builder.py`): Conditional routing with iterative refinement - agents can refine queries and retrieve more evidence when confidence < threshold. **Includes comprehensive logging** to CSV/TXT for future SFT training. |
-| **LLM Integration** | Currently using **Google Gemini** for agentic reasoning. **Recommended models**: `gemini-1.5-flash` (1M token context, best balance) or `gemini-2.0-flash` (latest, improved reasoning). Alternative: `gemini-2.5-flash-lite` for faster, lightweight processing. Code structure supports future integration with OpenAI, Ollama, and LLaVA. |
-| **Multi-modal Support** | Unified embedding space for text and images using CLIP-ViT-L/14 (768 dims), enabling semantic search across different content types with better representation than ViT-B/32. |
-| **Cross-Document Retrieval** | **NEW**: `--cross-doc` flag enables two-stage retrieval. When `doc_id` is provided: Stage 1 retrieves from the specified document, Stage 2 uses combined query (original + retrieved content) for semantic search across all documents. When no `doc_id`: Enables general cross-document semantic search. Results are merged and deduplicated. |
-| **Document Context** | Document ID (`doc_id`) tracking throughout the pipeline. Enables document-specific filtering, context-aware planning and synthesis, and automatic document identification from retrieved chunks. |
-| **Thread Tracking** | **NEW**: Comprehensive audit logging via `thread_tracking` table. Tracks user interactions, thread sessions, document retrievals, pipeline states, and entry points for SFT/RLHF training and analysis. See [`md_guides/THREAD_TRACKING_AND_AUDIT.md`](md_guides/THREAD_TRACKING_AND_AUDIT.md). |
-| **Reasoning Logs** | All agentic reasoning steps are logged to `inference/graph/logs/` in both CSV (for training) and TXT (for presentations). Captures queries, plans, retrievals, confidence scores, and refinements for future SFT model training. |
-| **Modular Architecture** | Fully modularized codebase with focused modules for agents, LLM providers, retrieval stages, embeddings, database operations, and diagnostics. Improves legibility, testing, and context switching. |
-| **Comprehensive Testing** | Unit tests for all modules and integration tests for LLM providers and end-to-end workflows. **Automated endpoint testing scripts** verify all ingest, query, and infer endpoints work correctly. Tests can be run via CLI, Make, TOML, or direct Pytest. |
-| **Microservice Ready** | FastAPI REST interface with comprehensive endpoints for ingestion, querying (direct and LangGraph), and health checks. |
-| **CLI Ready** | Typer CLI matching all REST endpoints for easy local development and testing. |
-| **Containerized DB** | pgvector/pg16 Docker image with automatic schema init via mounted SQL file. Support for fresh database starts and migrations. |
-
----
-
-# 🚩 Flags and Options
-
-## `--cross-doc` Flag
-
-The `--cross-doc` flag enables **cross-document retrieval**, allowing the system to search beyond a single specified document for more comprehensive answers.
-
-### Behavior
-
-#### When `doc_id` is Provided
-
-**Without `--cross-doc`**: Retrieval is strictly limited to the specified `doc_id` only.
-
-**With `--cross-doc`**: Performs **two-stage retrieval**:
-1. **Stage 1 (Primary)**: Retrieves content from the specified `doc_id`
-2. **Stage 2 (Cross-Document)**: Uses the original query combined with retrieved content from Stage 1 to formulate a semantic search query across **all documents** (including the primary `doc_id` for semantic search, but prioritizing primary results)
-3. **Merge & Deduplicate**: Results from both stages are combined and deduplicated, with primary chunks prioritized
-
-**Use Case**: When you want to start with a specific document but also find related information across your entire knowledge base.
-
-#### When No `doc_id` is Provided
-
-**Without `--cross-doc`**: Standard retrieval searches across all documents.
-
-**With `--cross-doc`**: Enables enhanced cross-document semantic search with better query expansion and semantic matching.
-
-**Use Case**: When you want the most comprehensive answer possible from your entire knowledge base.
-
-<details>
-<summary><strong>Examples</strong> - Click to expand</summary>
-
-#### CLI (from `deep_rag_backend/` directory)
-```bash
-cd deep_rag_backend
-# Query with doc_id + cross-doc (two-stage retrieval)
-python -m inference.cli query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --cross-doc
-
-# Query all documents with cross-doc enabled
-python -m inference.cli query "What are the requirements?" --cross-doc
-
-# Ingest + Query with cross-doc
-python -m inference.cli infer "What does this document say?" --file "path/to/file.pdf" --cross-doc
-```
-
-#### Make (from project root `deep_rag/`)
-```bash
-# Query with doc_id + cross-doc
-make query Q="What are the requirements?" DOC_ID=550e8400-e29b-41d4-a716-446655440000 CROSS_DOC=true DOCKER=true
-
-# Query all documents with cross-doc
-make query Q="What are the requirements?" CROSS_DOC=true DOCKER=true
-
-# Ingest + Query with cross-doc
-make infer Q="What does this document say?" FILE="path/to/file.pdf" CROSS_DOC=true DOCKER=true
-```
-
-#### REST API
-```bash
-# Query with doc_id + cross-doc
-curl -X POST http://localhost:8000/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What are the requirements?", "doc_id": "550e8400-e29b-41d4-a716-446655440000", "cross_doc": true}'
-
-# Query all documents with cross-doc
-curl -X POST http://localhost:8000/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What are the requirements?", "cross_doc": true}'
-```
-
-</details>
-
-### When to Use `--cross-doc`
-
-- ✅ **Use when**: You want comprehensive answers that may span multiple documents
-- ✅ **Use when**: You have a primary document but want to find related information elsewhere
-- ✅ **Use when**: You're unsure which document contains the answer
-- ❌ **Don't use when**: You need strict document-specific answers
-- ❌ **Don't use when**: You want faster, more focused retrieval from a single document
-
-## Other Flags
-
-### `--doc-id` (Document ID)
-Filters retrieval to a specific document. See [Document ID (`doc_id`) and Context Reasoning](#-document-id-doc_id-and-context-reasoning) section.
-
-### `--thread-id` (Thread ID)
-Used with LangGraph pipeline to maintain conversation state across multiple queries. Default: `"default"`.
-
-### `--title` (Document Title)
-Custom title for documents during ingestion. If not provided, extracted from document content.
-
-### `--file` (File Path)
-File path for ingestion (PDF, TXT, PNG, JPEG). Used with `infer` and `infer-graph` commands.
-
-### `--docker` (Docker Flag)
-Run commands inside Docker container. Used with Make scripts and CLI test commands.
-
-### `--verbose` / `--quiet` (Verbosity)
-Control output verbosity. Used with CLI test commands.
-
----
-
-# 📄 Document ID (`doc_id`) and Context Reasoning
-
-## Overview
-
-Deep RAG uses **Document IDs (`doc_id`)** to enable document-specific retrieval and context-aware reasoning. Every chunk in the vector database is linked to its source document via a `doc_id` UUID, allowing the system to:
-
-- **Filter retrieval** to specific documents when needed
-- **Track provenance** of retrieved information
-- **Provide document context** to the LLM for better reasoning
-- **Identify document sources** from retrieved chunks when querying without ingestion
-
-## Database Schema
-
-The `doc_id` is stored in the PostgreSQL `chunks` table:
-
-```sql
-CREATE TABLE chunks (
-  chunk_id    UUID PRIMARY KEY,
-  doc_id      UUID REFERENCES documents(doc_id) ON DELETE CASCADE,
-  page_start  INT,
-  page_end    INT,
-  text        TEXT NOT NULL,
-  emb         vector(768),  -- pgvector embedding
-  ...
-);
-```
-
-**Key Points:**
-- `doc_id` is a UUID that references the `documents` table
-- Every chunk is linked to its source document via `doc_id`
-- `ON DELETE CASCADE` ensures chunks are deleted when a document is removed
-- `doc_id` is included in all retrieval queries and results
-
-## How `doc_id` Flows Through the System
-
-### During Ingestion
-
-When a document is ingested (PDF, TXT, PNG, JPEG), the system:
-1. Creates a new document record in the `documents` table → generates `doc_id`
-2. Chunks the document content
-3. Embeds each chunk
-4. Inserts chunks into the `chunks` table with the `doc_id` reference
-5. **Returns the `doc_id`** to the caller
-
-### During Retrieval
-
-When querying, the system:
-1. **If `doc_id` is provided**: Filters retrieval to chunks from that specific document
-2. **If `doc_id` is not provided**: Searches across all documents in the knowledge base
-3. **If `doc_id` is not provided but chunks are retrieved**: The synthesizer can identify `doc_id` from retrieved chunks (if all chunks come from one document)
-
-### During Synthesis
-
-The synthesizer uses `doc_id` context to:
-- Include document-specific context in the LLM prompt
-- Provide better reasoning about which document the answer is based on
-- Log which document(s) were used for the answer
-
-## Usage Scenarios
-
-For detailed scenarios and examples, see [`md_guides/ENTRY_POINTS_AND_SCENARIOS.md`](md_guides/ENTRY_POINTS_AND_SCENARIOS.md).
-
----
-
 # 🧩 Prerequisites
 
 - **Python ≥ 3.11** (required for Google Gemini support due to 3.10 support deprecation in 2026)  
@@ -402,10 +58,10 @@ sudo apt install tesseract-ocr poppler-utils -y
 # macOS
 brew install tesseract poppler
 ```
-
----
-
 # 🚀 Quick Start
+<details>
+<summary><strong>🚀 Quick Start</strong> - Click to expand</summary>
+
 
 ## Setup
 
@@ -535,7 +191,372 @@ curl http://localhost:8000/health
 # Should return: {"ok": true, "status": "healthy", "database": "connected", "tables": ["chunks", "documents", "thread_tracking"]}
 ```
 
+</details>
+
+## Environment Setup
+
+<details>
+<summary><strong>Root `.env` File (Full Stack)</strong> - Click to expand</summary>
+
+Create `.env` file in project root (`deep_rag/`):
+
+```bash
+# Copy example file
+cp .env.example .env
+
+# Edit .env and fill in required values:
+#   - Database credentials (DB_USER, DB_PASS, DB_NAME)
+#   - LLM API key (GEMINI_API_KEY)
+#   - Embedding model (CLIP_MODEL, EMBEDDING_DIM)
+#   - Frontend configuration (API_BASE_URL, FRONTEND_PORT)
+```
+
+**Required Variables:**
+- **Database**: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`
+- **LLM**: `LLM_PROVIDER`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `LLM_TEMPERATURE`
+- **Embeddings**: `CLIP_MODEL`, `EMBEDDING_DIM`
+
+**Optional Variables:**
+- **Startup Tests**: `RUN_TESTS_ON_STARTUP` (set to `true` to run database schema tests on container startup)
+- **Endpoint Tests on Boot**: `AUTOMATE_ENDPOINT_RUNS_ON_BOOT` (set to `true` to run endpoint tests after `make up-and-test`)
+
+See [`md_guides/ENVIRONMENT_SETUP.md`](md_guides/ENVIRONMENT_SETUP.md) for detailed configuration options.
+
+</details>
+
+<details>
+<summary><strong>Component-Specific `.env` Files (Independent Services)</strong> - Click to expand</summary>
+
+If running services independently, create component-specific `.env` files:
+
+**Backend `.env` (from `deep_rag_backend/` directory):**
+```bash
+cd deep_rag_backend
+cp .env.example .env
+# Edit with backend-specific values
+```
+
+**Frontend `.env` (from `deep_rag_frontend/` directory):**
+```bash
+cd deep_rag_frontend
+cp .env.example .env
+# Edit with frontend-specific values (API_BASE_URL)
+```
+
+**Database `.env` (from `vector_db/` directory):**
+```bash
+cd vector_db
+cp .env.example .env
+# Edit with database credentials
+```
+
+**Note:** Never commit `.env` files to git - they contain sensitive information.
+
+</details>
+
+## Docker Deployment
+
+All Docker images use **Python 3.11** to ensure compatibility with Google Gemini SDK.
+
+### Full Stack (Recommended)
+
+Run all three services together (database, backend API, frontend):
+
+```bash
+# From project root (deep_rag/)
+docker-compose up -d
+
+# Services will be available at:
+# - Frontend: http://localhost:8501
+# - Backend API: http://localhost:8000
+# - Database: localhost:5432
+```
+
+**View logs:**
+```bash
+# All services
+docker-compose logs -f
+
+# Specific service
+docker-compose logs -f api
+docker-compose logs -f frontend
+docker-compose logs -f db
+```
+
+**Stop services:**
+```bash
+docker-compose down
+```
+
+### Independent Services
+
+Each service can run independently with its own `docker-compose.yml`:
+
+**Backend Only:**
+```bash
+cd deep_rag_backend
+docker-compose up -d
+# Backend API: http://localhost:8000
+# Note: Requires database to be running separately
+```
+
+**Frontend Only:**
+```bash
+cd deep_rag_frontend
+docker-compose up -d
+# Frontend: http://localhost:8501
+# Note: Requires backend API to be running
+# Set API_BASE_URL in .env to point to backend
+```
+
+**Database Only:**
+```bash
+cd vector_db
+docker-compose up -d
+# Database: localhost:5432
+# Note: Other services can connect to this database
+```
+
 ---
+
+<details>
+<summary><strong>🚀 Features</strong> - Click to expand</summary>
+
+# 🚀 Features
+
+| Layer | Description |
+|-------|--------------|
+| **Ingestion** | Multi-modal ingestion: PDFs (text + OCR), plain text files, and images (PNG/JPEG). Extracts text using PyMuPDF (`fitz`) with OCR fallback (`pytesseract`). Chunks and embeds with **CLIP-ViT-L/14** (`sentence-transformers/clip-ViT-L-14`) into unified **768-dimensional vectors** in Postgres + pgvector. **Upgraded from ViT-B/32 (512 dims)** for better semantic representation. |
+| **Retrieval** | Hybrid search combining pg_trgm (BM25-style) lexical scores + vector similarity (cosine distance). Reranked by a cross-encoder (`bge-reranker-base`). Supports multi-modal queries (text + images). Dynamically supports 512 or 768 dimensional embeddings. **Supports two-stage retrieval with `--cross-doc` flag** for cross-document semantic search. |
+| **Agentic Loop** | Two pipeline options: (1) **Direct pipeline** (`deep_rag_backend/inference/agents/pipeline.py`): Linear execution (plan → retrieve → compress → reflect → synthesize). (2) **LangGraph pipeline** (`deep_rag_backend/inference/graph/builder.py`): Conditional routing with iterative refinement - agents can refine queries and retrieve more evidence when confidence < threshold. **Includes comprehensive logging** to CSV/TXT for future SFT training. |
+| **LLM Integration** | Currently using **Google Gemini** for agentic reasoning. **Recommended models**: `gemini-1.5-flash` (1M token context, best balance) or `gemini-2.0-flash` (latest, improved reasoning). Alternative: `gemini-2.5-flash-lite` for faster, lightweight processing. Code structure supports future integration with OpenAI, Ollama, and LLaVA. |
+| **Multi-modal Support** | Unified embedding space for text and images using CLIP-ViT-L/14 (768 dims), enabling semantic search across different content types with better representation than ViT-B/32. |
+| **Cross-Document Retrieval** | **NEW**: `--cross-doc` flag enables two-stage retrieval. When `doc_id` is provided: Stage 1 retrieves from the specified document, Stage 2 uses combined query (original + retrieved content) for semantic search across all documents. When no `doc_id`: Enables general cross-document semantic search. Results are merged and deduplicated. |
+| **Document Context** | Document ID (`doc_id`) tracking throughout the pipeline. Enables document-specific filtering, context-aware planning and synthesis, and automatic document identification from retrieved chunks. |
+| **Thread Tracking** | **NEW**: Comprehensive audit logging via `thread_tracking` table. Tracks user interactions, thread sessions, document retrievals, pipeline states, and entry points for SFT/RLHF training and analysis. See [`md_guides/THREAD_TRACKING_AND_AUDIT.md`](md_guides/THREAD_TRACKING_AND_AUDIT.md). |
+| **Reasoning Logs** | All agentic reasoning steps are logged to `inference/graph/logs/` in both CSV (for training) and TXT (for presentations). Captures queries, plans, retrievals, confidence scores, and refinements for future SFT model training. |
+| **Modular Architecture** | Fully modularized codebase with focused modules for agents, LLM providers, retrieval stages, embeddings, database operations, and diagnostics. Improves legibility, testing, and context switching. |
+| **Comprehensive Testing** | Unit tests for all modules and integration tests for LLM providers and end-to-end workflows. **Automated endpoint testing scripts** verify all ingest, query, and infer endpoints work correctly. Tests can be run via CLI, Make, TOML, or direct Pytest. |
+| **Microservice Ready** | FastAPI REST interface with comprehensive endpoints for ingestion, querying (direct and LangGraph), and health checks. |
+| **CLI Ready** | Typer CLI matching all REST endpoints for easy local development and testing. |
+| **Containerized DB** | pgvector/pg16 Docker image with automatic schema init via mounted SQL file. Support for fresh database starts and migrations. |
+
+</details>
+
+---
+
+<details>
+<summary><strong>🎯 Entry Points</strong> - Click to expand</summary>
+
+# 🎯 Entry Points
+
+The Deep RAG system provides multiple entry points (CLI, Make, TOML, REST API) for different use cases:
+
+## Entry Point Mapping Table
+
+| CLI Command | Make Script | REST Endpoint | Purpose | Pipeline |
+|------------|-------------|---------------|---------|----------|
+| `ingest` | `make cli-ingest` | `POST /ingest` | **Ingestion only**: Embeds documents into vector DB without querying. Use when you want to pre-populate your knowledge base. | Direct |
+| `query` | `make query` | `POST /ask` | **Query only (direct pipeline)**: Fast, deterministic pipeline for simple queries. No conditional routing. Best for straightforward questions. Supports `--doc-id` and `--cross-doc` flags. | Direct (`deep_rag_backend/inference/agents/pipeline.py`) |
+| `query-graph` | `make query-graph` | `POST /ask-graph` | **Query only (LangGraph)**: Agentic pipeline with conditional routing. Agents can refine queries and retrieve more evidence if confidence is low. Best for complex questions requiring iterative reasoning. Supports `--doc-id`, `--thread-id`, and `--cross-doc` flags. | LangGraph |
+| `infer` | `make infer` | `POST /infer` | **Ingest + Query (direct pipeline)**: Combined ingestion and querying in one operation. Use when you have a document and want immediate answers with fast, deterministic processing. Supports `--file`, `--title`, and `--cross-doc` flags. | Direct (`deep_rag_backend/inference/agents/pipeline.py`) |
+| `infer-graph` | `make infer-graph` | `POST /infer-graph` | **Ingest + Query (LangGraph)**: Combined ingestion with agentic reasoning. Best when you need to ingest and then perform complex reasoning over the new content. Supports `--file`, `--title`, `--thread-id`, and `--cross-doc` flags. | LangGraph |
+| `health` | `make health` | `GET /health` | **Health check**: Verifies database connectivity and service availability. | - |
+| `graph` | `make graph` | `GET /graph` | **Graph export**: Exports LangGraph pipeline visualization as PNG or Mermaid diagram. Useful for understanding the agentic flow. | LangGraph |
+| `inspect` | `make inspect` | `GET /diagnostics/document` | **Document diagnostics**: Inspects what chunks and pages are stored for a document. Shows page distribution, chunk counts, and sample text. Essential for debugging ingestion and retrieval issues. | - |
+| `test` | `make test` | - | **Testing**: Run all tests (unit + integration). Supports `--docker` flag. | ALL |
+| `test unit` | `make unit-tests` | - | **Unit tests only**: Run unit tests for individual modules. Supports `--docker` flag. | ALL |
+| `test integration` | `make integration-tests` | - | **Integration tests only**: Run integration tests for end-to-end workflows. Supports `--docker` flag. | - |
+| - | `make test-endpoints` | ALL | **Endpoint testing**: Test all ingest/query/infer endpoints (Make + REST). Verifies all endpoints work correctly. | - |
+| - | `make test-endpoints-quick` | ALL | **Quick endpoint test**: Test one example of each endpoint type. Fast verification. | - |
+
+### Pipeline Comparison
+
+- **Direct Pipeline** (`deep_rag_backend/inference/agents/pipeline.py`): Linear execution, faster, deterministic. Best for simple queries.
+- **LangGraph Pipeline** (`deep_rag_backend/inference/graph/builder.py`): Conditional routing, agents can refine queries, iterative retrieval. Best for complex questions requiring multi-step reasoning.
+
+For detailed scenarios and use cases for each entry point, see [`md_guides/ENTRY_POINTS_AND_SCENARIOS.md`](md_guides/ENTRY_POINTS_AND_SCENARIOS.md).
+
+</details>
+
+---
+
+<details>
+<summary><strong>🚩 Flags and Options</strong> - Click to expand</summary>
+
+# 🚩 Flags and Options
+
+## `--cross-doc` Flag
+
+The `--cross-doc` flag enables **cross-document retrieval**, allowing the system to search beyond a single specified document for more comprehensive answers.
+
+### Behavior
+
+#### When `doc_id` is Provided
+
+**Without `--cross-doc`**: Retrieval is strictly limited to the specified `doc_id` only.
+
+**With `--cross-doc`**: Performs **two-stage retrieval**:
+1. **Stage 1 (Primary)**: Retrieves content from the specified `doc_id`
+2. **Stage 2 (Cross-Document)**: Uses the original query combined with retrieved content from Stage 1 to formulate a semantic search query across **all documents** (including the primary `doc_id` for semantic search, but prioritizing primary results)
+3. **Merge & Deduplicate**: Results from both stages are combined and deduplicated, with primary chunks prioritized
+
+**Use Case**: When you want to start with a specific document but also find related information across your entire knowledge base.
+
+#### When No `doc_id` is Provided
+
+**Without `--cross-doc`**: Standard retrieval searches across all documents.
+
+**With `--cross-doc`**: Enables enhanced cross-document semantic search with better query expansion and semantic matching.
+
+**Use Case**: When you want the most comprehensive answer possible from your entire knowledge base.
+
+<details>
+<summary><strong>Examples</strong> - Click to expand</summary>
+
+#### CLI (from `deep_rag_backend/` directory)
+```bash
+cd deep_rag_backend
+# Query with doc_id + cross-doc (two-stage retrieval)
+python -m inference.cli query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --cross-doc
+
+# Query all documents with cross-doc enabled
+python -m inference.cli query "What are the requirements?" --cross-doc
+
+# Ingest + Query with cross-doc
+python -m inference.cli infer "What does this document say?" --file "path/to/file.pdf" --cross-doc
+```
+
+#### Make (from project root `deep_rag/`)
+```bash
+# Query with doc_id + cross-doc
+make query Q="What are the requirements?" DOC_ID=550e8400-e29b-41d4-a716-446655440000 CROSS_DOC=true DOCKER=true
+
+# Query all documents with cross-doc
+make query Q="What are the requirements?" CROSS_DOC=true DOCKER=true
+
+# Ingest + Query with cross-doc
+make infer Q="What does this document say?" FILE="path/to/file.pdf" CROSS_DOC=true DOCKER=true
+```
+
+#### REST API
+```bash
+# Query with doc_id + cross-doc
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the requirements?", "doc_id": "550e8400-e29b-41d4-a716-446655440000", "cross_doc": true}'
+
+# Query all documents with cross-doc
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the requirements?", "cross_doc": true}'
+```
+
+</details>
+
+### When to Use `--cross-doc`
+
+- ✅ **Use when**: You want comprehensive answers that may span multiple documents
+- ✅ **Use when**: You have a primary document but want to find related information elsewhere
+- ✅ **Use when**: You're unsure which document contains the answer
+- ❌ **Don't use when**: You need strict document-specific answers
+- ❌ **Don't use when**: You want faster, more focused retrieval from a single document
+
+## Other Flags
+
+### `--doc-id` (Document ID)
+Filters retrieval to a specific document. See [Document ID (`doc_id`) and Context Reasoning](#-document-id-doc_id-and-context-reasoning) section.
+
+### `--thread-id` (Thread ID)
+Used with LangGraph pipeline to maintain conversation state across multiple queries. Default: `"default"`.
+
+### `--title` (Document Title)
+Custom title for documents during ingestion. If not provided, extracted from document content.
+
+### `--file` (File Path)
+File path for ingestion (PDF, TXT, PNG, JPEG). Used with `infer` and `infer-graph` commands.
+
+### `--docker` (Docker Flag)
+Run commands inside Docker container. Used with Make scripts and CLI test commands.
+
+### `--verbose` / `--quiet` (Verbosity)
+Control output verbosity. Used with CLI test commands.
+
+</details>
+
+---
+
+<details>
+<summary><strong>📄 Document ID (`doc_id`) and Context Reasoning</strong> - Click to expand</summary>
+
+# 📄 Document ID (`doc_id`) and Context Reasoning
+
+## Overview
+
+Deep RAG uses **Document IDs (`doc_id`)** to enable document-specific retrieval and context-aware reasoning. Every chunk in the vector database is linked to its source document via a `doc_id` UUID, allowing the system to:
+
+- **Filter retrieval** to specific documents when needed
+- **Track provenance** of retrieved information
+- **Provide document context** to the LLM for better reasoning
+- **Identify document sources** from retrieved chunks when querying without ingestion
+
+## Database Schema
+
+The `doc_id` is stored in the PostgreSQL `chunks` table:
+
+```sql
+CREATE TABLE chunks (
+  chunk_id    UUID PRIMARY KEY,
+  doc_id      UUID REFERENCES documents(doc_id) ON DELETE CASCADE,
+  page_start  INT,
+  page_end    INT,
+  text        TEXT NOT NULL,
+  emb         vector(768),  -- pgvector embedding
+  ...
+);
+```
+
+**Key Points:**
+- `doc_id` is a UUID that references the `documents` table
+- Every chunk is linked to its source document via `doc_id`
+- `ON DELETE CASCADE` ensures chunks are deleted when a document is removed
+- `doc_id` is included in all retrieval queries and results
+
+## How `doc_id` Flows Through the System
+
+### During Ingestion
+
+When a document is ingested (PDF, TXT, PNG, JPEG), the system:
+1. Creates a new document record in the `documents` table → generates `doc_id`
+2. Chunks the document content
+3. Embeds each chunk
+4. Inserts chunks into the `chunks` table with the `doc_id` reference
+5. **Returns the `doc_id`** to the caller
+
+### During Retrieval
+
+When querying, the system:
+1. **If `doc_id` is provided**: Filters retrieval to chunks from that specific document
+2. **If `doc_id` is not provided**: Searches across all documents in the knowledge base
+3. **If `doc_id` is not provided but chunks are retrieved**: The synthesizer can identify `doc_id` from retrieved chunks (if all chunks come from one document)
+
+### During Synthesis
+
+The synthesizer uses `doc_id` context to:
+- Include document-specific context in the LLM prompt
+- Provide better reasoning about which document the answer is based on
+- Log which document(s) were used for the answer
+
+## Usage Scenarios
+
+For detailed scenarios and examples, see [`md_guides/ENTRY_POINTS_AND_SCENARIOS.md`](md_guides/ENTRY_POINTS_AND_SCENARIOS.md).
+
+</details>
+
+---
+
+<details>
+<summary><strong>📖 Usage Examples</strong> - Click to expand</summary>
 
 # 📖 Usage Examples
 
@@ -883,7 +904,12 @@ curl "http://localhost:8000/diagnostics/document"
 
 </details>
 
+</details>
+
 ---
+
+<details>
+<summary><strong>🧠 Multi-Modal Embedding Model</strong> - Click to expand</summary>
 
 # 🧠 Multi-Modal Embedding Model
 
@@ -925,7 +951,12 @@ EMBEDDING_DIM=768
 
 For detailed embedding options and selection rationale, see [`md_guides/EMBEDDING_OPTIONS.md`](md_guides/EMBEDDING_OPTIONS.md).
 
+</details>
+
 ---
+
+<details>
+<summary><strong>🤖 LLM Model Recommendations</strong> - Click to expand</summary>
 
 # 🤖 LLM Model Recommendations
 
@@ -966,7 +997,12 @@ LLM_TEMPERATURE=0.2
 
 For detailed LLM setup and provider selection rationale, see [`md_guides/LLM_SETUP.md`](md_guides/LLM_SETUP.md).
 
+</details>
+
 ---
+
+<details>
+<summary><strong>🧪 Testing</strong> - Click to expand</summary>
 
 # 🧪 Testing
 
@@ -1284,7 +1320,12 @@ This installs:
 - `pytest>=7.0.0` - Test framework
 - `pytest-cov>=4.0.0` - Coverage reporting
 
+</details>
+
 ---
+
+<details>
+<summary><strong>📊 Agentic Reasoning Logs</strong> - Click to expand</summary>
 
 # 📊 Agentic Reasoning Logs
 
@@ -1339,7 +1380,12 @@ Human-readable format with:
 
 Logs are generated automatically during LangGraph pipeline execution (`/ask-graph`, `/infer-graph` endpoints). No configuration needed.
 
+</details>
+
 ---
+
+<details>
+<summary><strong>🗺️ Graph Visualization</strong> - Click to expand</summary>
 
 # 🗺️ Graph Visualization
 
@@ -1377,7 +1423,12 @@ curl "http://localhost:8000/graph?out=deep_rag_graph.png" -o deep_rag_graph.png
 
 </details>
 
+</details>
+
 ---
+
+<details>
+<summary><strong>🗄️ Database Management</strong> - Click to expand</summary>
 
 # 🗄️ Database Management
 
@@ -1394,6 +1445,8 @@ docker compose exec db psql -U $DB_USER -d $DB_NAME -c "REINDEX TABLE chunks;"
 # Verify Schema
 docker compose exec db psql -U $DB_USER -d $DB_NAME -c "\dt"
 ```
+
+</details>
 
 </details>
 
@@ -1461,6 +1514,9 @@ cat deep_rag_backend/inference/graph/logs/test_logs/agent_log_*.txt
 
 ---
 
+<details>
+<summary><strong>📚 Additional Resources</strong> - Click to expand</summary>
+
 # 📚 Additional Resources
 
 - See `md_guides/` directory for detailed guides (from project root):
@@ -1472,6 +1528,11 @@ cat deep_rag_backend/inference/graph/logs/test_logs/agent_log_*.txt
   - [`md_guides/QUICKSTART.md`](md_guides/QUICKSTART.md) - Quick start guide
   - [`md_guides/RESET_DB.md`](md_guides/RESET_DB.md) - Database reset procedures
   - [`deep_rag_backend/scripts/ENDPOINT_TESTING_GUIDE.md`](deep_rag_backend/scripts/ENDPOINT_TESTING_GUIDE.md) - Endpoint testing guide
+
+</details>
+
+<details>
+<summary><strong>📂 Directory Structure</strong> - Click to expand</summary>
 
 # 📂 Directory Structure
 
@@ -1673,3 +1734,5 @@ makefile
 pyproject.toml
 README.md
 ```
+
+</details>

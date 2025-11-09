@@ -164,13 +164,33 @@ def ingest_image(image_path: str, title: str = None):
     
     # Insert into database
     with connect() as conn, conn.cursor() as cur:
-        doc_id = upsert_document(cur, title, image_path)
-        logger.info(f"Document inserted: doc_id={doc_id}, title={title}")
+        # Check for duplicate before inserting
+        from ingestion.db_ops.document import calculate_content_hash
+        content_hash = calculate_content_hash(image_path)
+        cur.execute(
+            """
+            SELECT doc_id FROM documents 
+            WHERE content_hash = %s AND title = %s
+            LIMIT 1
+            """,
+            (content_hash, title)
+        )
+        existing = cur.fetchone()
         
-        upsert_chunks(cur, doc_id, chunks)
-        
-        conn.commit()
-        logger.info(f"Ingestion complete: doc_id={doc_id}, {len(chunks)} chunks stored")
+        if existing:
+            # Duplicate found - return existing doc_id without re-inserting chunks
+            doc_id = existing[0]
+            logger.info(f"Duplicate document found: doc_id={doc_id}, title={title}")
+            logger.info(f"Using existing document: doc_id={doc_id}, title={title}")
+        else:
+            # New document - insert document and chunks
+            doc_id = upsert_document(cur, title, image_path, content_hash)
+            logger.info(f"Document inserted: doc_id={doc_id}, title={title}")
+            
+            upsert_chunks(cur, doc_id, chunks)
+            
+            conn.commit()
+            logger.info(f"Ingestion complete: doc_id={doc_id}, {len(chunks)} chunks stored")
     
     print(f"Ingested: {image_path} (title: {title}, {len(chunks)} chunks)")
     return doc_id

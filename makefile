@@ -9,7 +9,7 @@ DC ?= docker compose
 # Defaults
 FILE ?=
 Q ?=
-OUT ?= deep_rag_graph.png
+OUT ?= deep_rag_backend/inference/graph/artifacts/deep_rag_graph.png
 DOCKER ?= false
 
 # Component directories
@@ -45,7 +45,7 @@ help:
 	@echo "  make query-graph Q='question' [DOCKER=true] [THREAD_ID=id] [DOC_ID=uuid] [CROSS_DOC=true]"
 	@echo "  make infer Q='question' [FILE=path] [TITLE='Title'] [DOCKER=true] [CROSS_DOC=true]"
 	@echo "  make infer-graph Q='question' [FILE=path] [TITLE='Title'] [DOCKER=true] [THREAD_ID=id]"
-	@echo "  make graph OUT=file.png [DOCKER=true]"
+	@echo "  make graph OUT=deep_rag_backend/inference/graph/artifacts/deep_rag_graph.png [DOCKER=true]"
 	@echo "  make health"
 	@echo "  make inspect [TITLE='Title'] [DOC_ID=uuid] [DOCKER=true]"
 	@echo ""

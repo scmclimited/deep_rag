@@ -5,6 +5,7 @@ Centralized DB connection to avoid DRY violations.
 import os
 import psycopg2
 from dotenv import load_dotenv
+from typing import Optional
 
 load_dotenv()
 
@@ -31,3 +32,24 @@ def connect():
         dbname=os.getenv("DB_NAME")
     )
 
+
+def get_document_title(doc_id: str) -> Optional[str]:
+    """
+    Get document title from doc_id.
+    
+    Args:
+        doc_id: Document ID (UUID)
+        
+    Returns:
+        Document title or None if not found
+    """
+    if not doc_id:
+        return None
+    
+    try:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT title FROM documents WHERE doc_id = %s", (doc_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+    except Exception:
+        return None

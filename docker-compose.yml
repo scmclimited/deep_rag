@@ -11,10 +11,8 @@ services:
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
-      # Use new multi-modal schema for fresh start
+      # Schema with all features integrated (no migrations needed)
       - ./vector_db/schema_multimodal.sql:/docker-entrypoint-initdb.d/01_schema_multimodal.sql
-      # Keep migration script for future testing (optional)
-      - ./vector_db/migration_add_multimodal.sql:/docker-entrypoint-initdb.d/02_migration_add_multimodal.sql
       # Named volume for persistent data (remove to start fresh)
       # Uncomment to persist data across container restarts:
       # - deep_rag_db_data:/var/lib/postgresql/data
@@ -58,8 +56,8 @@ services:
       # are immediately accessible at ./deep_rag_backend/inference/graph/logs/ on your local machine
       # Test logs (inference/graph/logs/test/) are excluded - they are not mounted and not copied to image
       - ./deep_rag_backend/inference/graph/logs:/app/inference/graph/logs
-      # Artifacts are now created in container's /app/artifacts (not mounted)
-      # Use docker cp to extract if needed: docker cp deep_rag_api:/app/artifacts ./artifacts
+      # Graph visualization artifacts are created in container's /app/inference/graph/artifacts (not mounted)
+      # Use docker cp to extract if needed: docker cp deep_rag_api:/app/inference/graph/artifacts ./deep_rag_backend/inference/graph/artifacts
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -71,26 +69,23 @@ services:
 
   frontend:
     build:
-      context: ./deep_rag_frontend
+      context: ./deep_rag_frontend_vue
       dockerfile: Dockerfile
     container_name: deep_rag_frontend
     depends_on:
+      db:
+        condition: service_healthy
       api:
         condition: service_healthy
     env_file:
       - .env
     environment:
       # API connection - connect to backend API in same network
-      API_BASE_URL: http://api:8000
-      # Streamlit configuration
-      STREAMLIT_SERVER_PORT: 8501
-      STREAMLIT_SERVER_ADDRESS: 0.0.0.0
-      STREAMLIT_SERVER_HEADLESS: true
-      STREAMLIT_BROWSER_GATHER_USAGE_STATS: false
+      VITE_API_BASE_URL: http://api:8000
     ports:
-      - "${FRONTEND_PORT:-8501}:8501"
+      - "${FRONTEND_PORT:-5173}:80"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
       interval: 30s
       timeout: 10s
       retries: 3

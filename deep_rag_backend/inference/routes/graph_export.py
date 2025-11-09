@@ -11,7 +11,7 @@ router = APIRouter()
 
 
 @router.get("/graph")
-def graph_export(out: str = "deep_rag_graph.png"):
+def graph_export(out: str = "inference/graph/artifacts/deep_rag_graph.png"):
     """
     Export the LangGraph as PNG (Graphviz) or Mermaid (.mmd fallback).
     

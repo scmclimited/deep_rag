@@ -29,12 +29,17 @@ def query_graph(
             typer.echo(f"🔍 Querying with document filter: {doc_id}...")
         if cross_doc:
             typer.echo("🌐 Cross-document retrieval enabled")
-        answer = ask_with_graph(question, thread_id=thread_id, doc_id=doc_id, cross_doc=cross_doc)
+        result = ask_with_graph(question, thread_id=thread_id, doc_id=doc_id, cross_doc=cross_doc)
+        answer = result.get("answer", "")
+        confidence = result.get("confidence", 0.0)
+        action = result.get("action", "answer")
+        
         typer.echo("\n" + "="*80)
         typer.echo("Answer:")
         typer.echo("="*80)
         typer.echo(answer)
         typer.echo("="*80)
+        typer.echo(f"\nConfidence: {confidence:.3f} | Action: {action}")
     except Exception as e:
         typer.echo(f"Error querying with graph: {e}", err=True)
         raise typer.Exit(1)

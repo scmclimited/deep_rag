@@ -47,22 +47,23 @@ docker compose up -d
 
 When you start fresh, PostgreSQL will:
 
-1. **Initialize the database** with the new multi-modal schema from `schema_multimodal.sql`
+1. **Initialize the database** with the complete multi-modal schema from `schema_multimodal.sql`
 2. **Create tables** with:
-   - `emb` column as `vector(512)` (CLIP embeddings)
+   - `emb` column as `vector(768)` (CLIP-ViT-L/14 embeddings)
    - `content_type` column for multi-modal support
    - `image_path` column for image chunks
+   - `content_hash` column for duplicate detection
+   - `thread_tracking` table for conversation history
 3. **Set up indexes** for hybrid retrieval (lexical + vector)
 4. **Create triggers** for automatic lex vector updates
 
-## Migration Script
+## Schema Initialization
 
-The `migration_add_multimodal.sql` script is included in the docker-entrypoint-initdb.d folder for:
-- **Testing future migrations** against existing data
-- **Reference** for how to migrate from old schema to new schema
-- **Manual migrations** if needed later
-
-**Note**: The migration script will only run if the old schema exists. On a fresh start, only `schema_multimodal.sql` will be applied.
+On a fresh start, `schema_multimodal.sql` is automatically applied when the database container starts. This schema includes:
+- Multi-modal CLIP embeddings (768 dims)
+- Content hash for duplicate detection
+- Thread tracking for conversation history
+- All necessary indexes and triggers
 
 ## Verifying Fresh Start
 
@@ -76,16 +77,15 @@ docker compose exec db psql -U ${DB_USER} -d ${DB_NAME}
 \d chunks
 
 # Should show:
-# - emb vector(512)  (not 1024)
+# - emb vector(768)  (CLIP-ViT-L/14)
 # - content_type text
 # - image_path text
+# - content_hash text (in documents table)
 ```
 
 ## Schema Files
 
-- **`schema_multimodal.sql`**: Fresh schema with CLIP embeddings (512 dims)
-- **`migration_add_multimodal.sql`**: Migration script for existing databases
-- **`ingestion_schema.sql`**: Old schema (kept for reference)
+- **`schema_multimodal.sql`**: Complete schema with CLIP embeddings (768 dims), content_hash, thread_tracking, and multi-modal support
 
 ## Troubleshooting
 

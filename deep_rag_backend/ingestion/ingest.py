@@ -62,15 +62,42 @@ def ingest(pdf_path: str, title: str = None) -> str:
     final_title = extract_title(resolved_path, pages, title)
     
     doc_id = None
+    is_duplicate = False
     try:
         with connect() as conn, conn.cursor() as cur:
-            doc_id = upsert_document(cur, final_title, resolved_path)
-            logger.info(f"Document inserted: doc_id={doc_id}, title={final_title}")
+            # Check if document already exists (by content hash and title)
+            # upsert_document will return existing doc_id if duplicate found
+            existing_doc_id = None
+            if os.path.exists(resolved_path):
+                from ingestion.db_ops.document import calculate_content_hash
+                content_hash = calculate_content_hash(resolved_path)
+                cur.execute(
+                    """
+                    SELECT doc_id FROM documents 
+                    WHERE content_hash = %s AND title = %s
+                    LIMIT 1
+                    """,
+                    (content_hash, final_title)
+                )
+                existing = cur.fetchone()
+                if existing:
+                    existing_doc_id = existing[0]
+                    is_duplicate = True
+                    logger.info(f"Duplicate document found: doc_id={existing_doc_id}, title={final_title}")
             
-            upsert_chunks(cur, doc_id, chunks, temp_dir)
-            
-            conn.commit()
-            logger.info(f"Ingestion complete: doc_id={doc_id}, {len(chunks)} chunks stored")
+            if is_duplicate:
+                # Document already exists - return existing doc_id without re-inserting chunks
+                doc_id = existing_doc_id
+                logger.info(f"Using existing document: doc_id={doc_id}, title={final_title}")
+            else:
+                # New document - insert document and chunks
+                doc_id = upsert_document(cur, final_title, resolved_path)
+                logger.info(f"Document inserted: doc_id={doc_id}, title={final_title}")
+                
+                upsert_chunks(cur, doc_id, chunks, temp_dir)
+                
+                conn.commit()
+                logger.info(f"Ingestion complete: doc_id={doc_id}, {len(chunks)} chunks stored")
     finally:
         # Clean up temp directory
         if temp_dir and os.path.exists(temp_dir):

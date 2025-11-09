@@ -4,7 +4,7 @@ from pathlib import Path
 
 from inference.graph.builder import build_app
 
-def export_graph_png(png_path: str = "deep_rag_graph.png") -> str:
+def export_graph_png(png_path: str = "inference/graph/artifacts/deep_rag_graph.png") -> str:
     """
     Export the compiled LangGraph to a PNG using Graphviz.
     Falls back to Mermaid if Graphviz rendering isn't available.
@@ -34,7 +34,7 @@ def export_graph_png(png_path: str = "deep_rag_graph.png") -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Export Deep RAG LangGraph visualization.")
-    parser.add_argument("--out", default="artifacts/deep_rag_graph.png", help="Output PNG (or .mmd if Graphviz missing)")
+    parser.add_argument("--out", default="inference/graph/artifacts/deep_rag_graph.png", help="Output PNG (or .mmd if Graphviz missing)")
     args = parser.parse_args()
     path = export_graph_png(args.out)
     print(f"[graph-viz] Wrote: {path}")

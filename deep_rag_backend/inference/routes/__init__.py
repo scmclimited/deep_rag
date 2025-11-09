@@ -9,6 +9,8 @@ from inference.routes.infer_graph import router as infer_graph_router
 from inference.routes.ingest import router as ingest_router
 from inference.routes.diagnostics import router as diagnostics_router
 from inference.routes.graph_export import router as graph_export_router
+from inference.routes.threads import router as threads_router
+from inference.routes.documents import router as documents_router
 
 __all__ = [
     'health_router',
@@ -19,5 +21,7 @@ __all__ = [
     'ingest_router',
     'diagnostics_router',
     'graph_export_router',
+    'threads_router',
+    'documents_router',
 ]
 

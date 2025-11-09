@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #1a1a1a;
+  color: #ffffff;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Dynamic layout - sidebar and main content using viewport units */
+.sidebar {
+  width: min(256px, 20vw); /* Sidebar: 256px or 20% of viewport, whichever is smaller */
+}
+
+.main-content {
+  /* Use 80% of remaining space after sidebar - fully dynamic */
+  margin-left: min(256px, 20vw); /* Match sidebar width */
+  width: calc(80vw - min(256px, 20vw)); /* 80% of viewport minus sidebar */
+  max-width: calc(80vw - min(256px, 20vw)); /* Ensure it doesn't exceed 80% */
+  min-width: 0; /* Allow shrinking if needed */
+}
+
+/* Responsive adjustments - smooth transitions */
+@media (max-width: 1024px) {
+  .sidebar {
+    width: min(200px, 18vw); /* Smaller sidebar on medium screens */
+  }
+  .main-content {
+    margin-left: min(200px, 18vw);
+    width: calc(80vw - min(200px, 18vw));
+    max-width: calc(80vw - min(200px, 18vw));
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    width: 0; /* Hidden by default on mobile */
+    overflow: hidden;
+    z-index: 50; /* Above overlay */
+  }
+  .sidebar-expanded {
+    width: 25vw; /* Expand up to 25% of viewport on mobile */
+    max-width: 280px;
+    min-width: 200px;
+    box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
+  }
+  .sidebar-collapsed {
+    width: 0;
+    overflow: hidden;
+    border: none;
+  }
+  .main-content {
+    margin-left: 0 !important;
+    width: 100vw !important; /* Full width when sidebar is hidden */
+    max-width: 100vw !important;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    transition: margin-left 0.3s ease, width 0.3s ease, pointer-events 0.3s ease;
+    position: relative;
+    z-index: 20; /* Above default, below overlay when sidebar is open */
+  }
+  /* When sidebar is expanded on mobile, main content stays full width but is behind overlay */
+  .main-content.pointer-events-none {
+    pointer-events: none; /* Disable clicks when sidebar is open */
+    z-index: 10; /* Lower z-index when disabled */
+  }
+}
+
+/* Smooth scrolling */
+.overflow-y-auto {
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar */
+.overflow-y-auto::-webkit-scrollbar {
+  width: 8px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: #2d2d2d;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: #404040;
+  border-radius: 4px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: #505050;
+}

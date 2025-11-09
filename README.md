@@ -536,7 +536,7 @@ python -m inference.cli inspect --doc-id your-doc-id-here
 python -m inference.cli inspect  # List all documents
 
 # Export graph visualization
-python -m inference.cli graph --out deep_rag_graph.png
+python -m inference.cli graph --out inference/graph/artifacts/deep_rag_graph.png
 
 # Health check
 python -m inference.cli health
@@ -649,7 +649,7 @@ make inspect DOC_ID=your-doc-id-here DOCKER=true
 make inspect DOCKER=true  # List all documents
 
 # Graph visualization
-make graph OUT=deep_rag_graph.png DOCKER=true
+make graph OUT=deep_rag_backend/inference/graph/artifacts/deep_rag_graph.png DOCKER=true
 
 # Testing
 make test                  # Run all tests (unit + integration)
@@ -716,7 +716,7 @@ deep-rag inspect --doc-id your-doc-id-here
 deep-rag inspect  # List all documents
 
 # Graph visualization
-deep-rag graph --out deep_rag_graph.png
+deep-rag graph --out inference/graph/artifacts/deep_rag_graph.png
 
 # Testing
 deep-rag test all          # Run all tests (unit + integration)
@@ -826,7 +826,7 @@ curl http://localhost:8000/health
 
 #### GET /graph
 ```bash
-curl "http://localhost:8000/graph?out=deep_rag_graph.png" -o deep_rag_graph.png
+curl "http://localhost:8000/graph?out=inference/graph/artifacts/deep_rag_graph.png" -o deep_rag_graph.png
 ```
 
 #### GET /diagnostics/document
@@ -1348,16 +1348,16 @@ brew install graphviz
 ```bash
 # Via CLI (from deep_rag_backend directory)
 cd deep_rag_backend
-python -m inference.cli graph --out deep_rag_graph.png
+python -m inference.cli graph --out inference/graph/artifacts/deep_rag_graph.png
 
 # Via Make (from project root)
-make graph OUT=deep_rag_graph.png DOCKER=true
+make graph OUT=deep_rag_backend/inference/graph/artifacts/deep_rag_graph.png DOCKER=true
 
 # Via TOML (from any directory after installation)
-deep-rag graph --out deep_rag_graph.png
+deep-rag graph --out inference/graph/artifacts/deep_rag_graph.png
 
 # Via REST API (from any directory)
-curl "http://localhost:8000/graph?out=deep_rag_graph.png" -o deep_rag_graph.png
+curl "http://localhost:8000/graph?out=inference/graph/artifacts/deep_rag_graph.png" -o deep_rag_graph.png
 ```
 
 </details>
@@ -1659,10 +1659,6 @@ md_guides/
 vector_db/
     ├── .env.example
     ├── docker-compose.yml
-    ├── ingestion_schema.sql
-    ├── migration_add_multimodal.sql
-    ├── migration_add_thread_tracking.sql
-    ├── migration_upgrade_to_768.sql
     └── schema_multimodal.sql
 .env.example
 .gitignore

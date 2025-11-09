@@ -21,8 +21,8 @@ services:
       # Map logs directory from container to local filesystem (production logs only)
       # Test logs are excluded - they live in inference/graph/logs/test/ and are not mounted
       - ./inference/graph/logs:/app/inference/graph/logs
-      # Artifacts are created in container's /app/artifacts (not mounted)
-      # Use docker cp to extract if needed: docker cp deep_rag_api:/app/artifacts ./artifacts
+      # Graph visualization artifacts are created in container's /app/inference/graph/artifacts (not mounted)
+      # Use docker cp to extract if needed: docker cp deep_rag_api:/app/inference/graph/artifacts ./inference/graph/artifacts
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

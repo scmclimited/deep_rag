@@ -4,19 +4,25 @@ Hybrid SQL query generation with doc_id filtering.
 from typing import Optional
 
 
-def get_hybrid_sql(embedding_dim: int, doc_id: Optional[str] = None) -> str:
+def get_hybrid_sql(embedding_dim: int, doc_id: Optional[str] = None, doc_ids: Optional[list[str]] = None) -> str:
     """
     Generate hybrid SQL query with optional doc_id filtering.
     
     Args:
         embedding_dim: Embedding dimension (768 for CLIP-ViT-L/14, 512 for CLIP-ViT-B/32)
-        doc_id: Optional document ID to filter chunks to a specific document
+        doc_id: Optional document ID to filter chunks to a specific document (backward compatibility)
+        doc_ids: Optional list of document IDs to filter chunks (multi-document selection)
         
     Returns:
         SQL query string with optional doc_id filter
     """
-    # Add doc_id filter if provided
-    doc_filter = "AND c.doc_id = %(doc_id)s" if doc_id else ""
+    # Add doc_id filter if provided (support both single doc_id and multiple doc_ids)
+    if doc_ids and len(doc_ids) > 0:
+        doc_filter = "AND c.doc_id = ANY(%(doc_ids)s::uuid[])"
+    elif doc_id:
+        doc_filter = "AND c.doc_id = %(doc_id)s"
+    else:
+        doc_filter = ""
     
     return f"""
 WITH

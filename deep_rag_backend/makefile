@@ -5,7 +5,7 @@ DC ?= docker compose
 # Defaults (override like: make ingest FILE=./samples/doc.pdf)
 FILE ?=
 Q ?=
-OUT ?= deep_rag_graph.png
+OUT ?= inference/graph/artifacts/deep_rag_graph.png
 
 .PHONY: help up down logs rebuild db-up db-down ingest query query-graph infer-graph graph health inspect
 
@@ -26,7 +26,7 @@ help:
 	@echo "make query-graph  Q='your question here'  # uses LangGraph (with conditional routing)"
 	@echo "make infer  Q='your question' [FILE=path/to/file.pdf] [TITLE='Title']  # uses direct pipeline"
 	@echo "make infer-graph  Q='your question' [FILE=path/to/file.pdf] [TITLE='Title']  # uses LangGraph"
-	@echo "make graph  OUT=deep_rag_graph.png [DOCKER=true]  # export LangGraph diagram (PNG or Mermaid fallback)"
+	@echo "make graph  OUT=inference/graph/artifacts/deep_rag_graph.png [DOCKER=true]  # export LangGraph diagram (PNG or Mermaid fallback)"
 	@echo "make health  # check API and database health status"
 	@echo "make inspect [TITLE='Document Title'] [DOC_ID=uuid] [DOCKER=true]  # inspect stored chunks and pages for a document"
 	@echo "make test [DOCKER=true]  # run all tests (unit + integration)"
@@ -349,7 +349,7 @@ graph:
 	@if [ "$(DOCKER)" = "true" ]; then \
 		docker compose -f ../docker-compose.yml exec api python -m inference.graph.graph_viz --out "$(OUT)"; \
 	else \
-		$(PY) inference/graph/graph_viz.py --out "$(OUT)"; \
+		$(PY) -m inference.graph.graph_viz --out "$(OUT)"; \
 	fi
 	@echo "Graph written to $(OUT) (or .mmd fallback if Graphviz is missing)"
 

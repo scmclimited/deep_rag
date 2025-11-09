@@ -195,7 +195,7 @@ docker ps
 # Should show: deep_rag_pgvector and deep_rag_api running
 
 # Check API health (verifies database connection and schema)
-curl http://localhost:8000/health
+curl http://localhost:5173/api/health
 # Should return: {"ok": true, "status": "healthy", "database": "connected", "tables": ["chunks", "documents", "thread_tracking"]}
 ```
 
@@ -215,8 +215,8 @@ Run all three services together (database, backend API, frontend):
 docker-compose up -d
 
 # Services will be available at:
-# - Frontend: http://localhost:8501
-# - Backend API: http://localhost:8000
+# - Frontend: http://localhost:5173
+# - Backend API: http://localhost:8000 (also proxied at http://localhost:5173/api)
 # - Database: localhost:5432
 ```
 
@@ -244,7 +244,7 @@ Each service can run independently with its own `docker-compose.yml`:
 ```bash
 cd deep_rag_backend
 docker-compose up -d
-# Backend API: http://localhost:8000
+# Backend API: http://localhost:8000 (also proxied at http://localhost:5173/api)
 # Note: Requires database to be running separately
 ```
 
@@ -252,7 +252,7 @@ docker-compose up -d
 ```bash
 cd deep_rag_frontend
 docker-compose up -d
-# Frontend: http://localhost:8501
+# Frontend: http://localhost:5173
 # Note: Requires backend API to be running
 # Set API_BASE_URL in .env to point to backend
 ```
@@ -390,12 +390,12 @@ make infer Q="What does this document say?" FILE="path/to/file.pdf" CROSS_DOC=tr
 #### REST API
 ```bash
 # Query with doc_id + cross-doc
-curl -X POST http://localhost:8000/ask \
+curl -X POST http://localhost:5173/api/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "What are the requirements?", "doc_id": "550e8400-e29b-41d4-a716-446655440000", "cross_doc": true}'
 
 # Query all documents with cross-doc
-curl -X POST http://localhost:8000/ask \
+curl -X POST http://localhost:5173/api/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "What are the requirements?", "cross_doc": true}'
 ```
@@ -763,7 +763,7 @@ uvicorn inference.service:app --host 0.0.0.0 --port 8000
 
 #### POST /ingest (File Upload)
 ```bash
-curl -X POST http://localhost:8000/ingest \
+curl -X POST http://localhost:5173/api/ingest \
   -F "attachment=@path/to/file.pdf" \
   -F "title=Optional Document Title"
 ```
@@ -771,17 +771,17 @@ curl -X POST http://localhost:8000/ingest \
 #### POST /ask (Query - Direct Pipeline)
 ```bash
 # Query all documents
-curl -X POST http://localhost:8000/ask \
+curl -X POST http://localhost:5173/api/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "What is the document about?"}'
 
 # Query specific document by doc_id
-curl -X POST http://localhost:8000/ask \
+curl -X POST http://localhost:5173/api/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "What is the document about?", "doc_id": "550e8400-e29b-41d4-a716-446655440000"}'
 
 # Query with cross-doc enabled
-curl -X POST http://localhost:8000/ask \
+curl -X POST http://localhost:5173/api/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "What is the document about?", "doc_id": "550e8400-e29b-41d4-a716-446655440000", "cross_doc": true}'
 ```
@@ -789,30 +789,30 @@ curl -X POST http://localhost:8000/ask \
 #### POST /ask-graph (Query - LangGraph Pipeline)
 ```bash
 # Query all documents
-curl -X POST http://localhost:8000/ask-graph \
+curl -X POST http://localhost:5173/api/ask-graph \
   -H "Content-Type: application/json" \
   -d '{"question": "What are the specific requirements?", "thread_id": "session-1"}'
 
 # Query specific document by doc_id
-curl -X POST http://localhost:8000/ask-graph \
+curl -X POST http://localhost:5173/api/ask-graph \
   -H "Content-Type: application/json" \
   -d '{"question": "What are the specific requirements?", "thread_id": "session-1", "doc_id": "550e8400-e29b-41d4-a716-446655440000"}'
 
 # Query with cross-doc enabled
-curl -X POST http://localhost:8000/ask-graph \
+curl -X POST http://localhost:5173/api/ask-graph \
   -H "Content-Type: application/json" \
   -d '{"question": "What are the specific requirements?", "thread_id": "session-1", "doc_id": "550e8400-e29b-41d4-a716-446655440000", "cross_doc": true}'
 ```
 
 #### POST /infer (Ingest + Query - Direct)
 ```bash
-curl -X POST http://localhost:8000/infer \
+curl -X POST http://localhost:5173/api/infer \
   -F "question=What does this document say about RAG systems?" \
   -F "attachment=@path/to/file.pdf" \
   -F "title=Optional Title"
 
 # With cross-doc enabled
-curl -X POST http://localhost:8000/infer \
+curl -X POST http://localhost:5173/api/infer \
   -F "question=What does this document say about RAG systems?" \
   -F "attachment=@path/to/file.pdf" \
   -F "title=Optional Title" \
@@ -821,7 +821,7 @@ curl -X POST http://localhost:8000/infer \
 
 #### POST /infer-graph (Ingest + Query - LangGraph)
 ```bash
-curl -X POST http://localhost:8000/infer-graph \
+curl -X POST http://localhost:5173/api/infer-graph \
   -F "question=What are the key requirements for this RAG system?" \
   -F "attachment=@path/to/file.pdf" \
   -F "title=Optional Title" \
@@ -830,24 +830,24 @@ curl -X POST http://localhost:8000/infer-graph \
 
 #### GET /health
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:5173/api/health
 ```
 
 #### GET /graph
 ```bash
-curl "http://localhost:8000/graph?out=inference/graph/artifacts/deep_rag_graph.png" -o deep_rag_graph.png
+curl "http://localhost:5173/api/graph?out=inference/graph/artifacts/deep_rag_graph.png" -o deep_rag_graph.png
 ```
 
 #### GET /diagnostics/document
 ```bash
 # Inspect by document title (partial match)
-curl "http://localhost:8000/diagnostics/document?doc_title=NYMBL"
+curl "http://localhost:5173/api/diagnostics/document?doc_title=NYMBL"
 
 # Inspect by document ID (UUID)
-curl "http://localhost:8000/diagnostics/document?doc_id=your-doc-id-here"
+curl "http://localhost:5173/api/diagnostics/document?doc_id=your-doc-id-here"
 
 # List all documents (if no params provided)
-curl "http://localhost:8000/diagnostics/document"
+curl "http://localhost:5173/api/diagnostics/document"
 ```
 
 </details>
@@ -1366,7 +1366,7 @@ make graph OUT=deep_rag_backend/inference/graph/artifacts/deep_rag_graph.png DOC
 deep-rag graph --out inference/graph/artifacts/deep_rag_graph.png
 
 # Via REST API (from any directory)
-curl "http://localhost:8000/graph?out=inference/graph/artifacts/deep_rag_graph.png" -o deep_rag_graph.png
+curl "http://localhost:5173/api/graph?out=inference/graph/artifacts/deep_rag_graph.png" -o deep_rag_graph.png
 ```
 
 </details>
@@ -1412,7 +1412,7 @@ cd deep_rag_backend
 python -m inference.cli inspect --title "Document Title"
 
 # Or via REST API (from any directory)
-curl "http://localhost:8000/diagnostics/document?doc_title=Your%20Title"
+curl "http://localhost:5173/api/diagnostics/document?doc_title=Your%20Title"
 ```
 
 </details>
@@ -1425,6 +1425,18 @@ The system logs show which pages are represented in retrieved chunks:
 **Production logs (from project root):**
 ```bash
 cat deep_rag_backend/inference/graph/logs/agent_log_*.txt
+```
+
+**Live tail via Docker (from project root):**
+```bash
+# Backend API agent logs
+docker compose logs -f api
+
+# Frontend service (useful for LangGraph UI interactions)
+docker compose logs -f frontend
+
+# Database events (connection issues, startup health checks)
+docker compose logs -f db
 ```
 
 **Test logs (from project root):**

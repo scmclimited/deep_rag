@@ -21,9 +21,9 @@ graph TD;
 	synthesizer --> __end__;
 	critic -. refine .-> refine_retrieve;
 	critic -. synthesizes .-> synthesizer;
-	classDef default fill:#f2f0ff,line-height:1.2;
-	classDef first fill-opacity:0;
-	classDef last fill:#bfb6fc;
+	classDef default fill:#1f2937,color:#f9fafb,stroke:#4b5563,line-height:1.2;
+	classDef first fill:#111827,color:#f9fafb,stroke:#60a5fa;
+	classDef last fill:#2563eb,color:#f9fafb,stroke:#1d4ed8;
 ```
 
 ---

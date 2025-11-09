@@ -2,6 +2,30 @@
 
 Deep RAG is a modular, production-ready Retrieval-Augmented Generation (RAG) system for querying and reasoning over PDFs (text + images). It combines deterministic PDF parsing with hybrid (lexical + vector) retrieval, cross-encoder reranking, and an agentic multi-stage reasoning loop inspired by "deep-thinking RAG" architectures.
 
+```mermaid
+%%{init: {'flowchart': {'curve': 'linear'}}}%%
+graph TD;
+	__start__([__start__]):::first
+	planner(planner)
+	retriever(retriever)
+	compressor(compressor)
+	critic(critic)
+	refine_retrieve(refine_retrieve)
+	synthesizer(synthesizer)
+	__end__([__end__]):::last
+	__start__ --> planner;
+	compressor --> critic;
+	planner --> retriever;
+	refine_retrieve --> compressor;
+	retriever --> compressor;
+	synthesizer --> __end__;
+	critic -. refine .-> refine_retrieve;
+	critic -. synthesizes .-> synthesizer;
+	classDef default fill:#f2f0ff,line-height:1.2;
+	classDef first fill-opacity:0;
+	classDef last fill:#bfb6fc;
+```
+
 ---
 
 # Project Structure
@@ -1513,12 +1537,14 @@ deep_rag_backend/
             ├── ask_graph.py
             ├── ask.py
             ├── diagnostics.py
+            ├── documents.py
             ├── graph_export.py
             ├── health.py
             ├── infer_graph.py
             ├── infer.py
             ├── ingest.py
-            └── models.py
+            ├── models.py
+            └── threads.py
         ├── samples/
             └── NYMBL - AI Engineer - Omar.pdf
         ├── cli.py
@@ -1545,9 +1571,6 @@ deep_rag_backend/
         └── title_extract.py
     ├── retrieval/
         ├── diagnostics/
-            ├── diagnostic_reports/
-                ├── doc_id=57e9d56c-3491-40b7-9b0b-0147650f17f5.json
-                └── ocr_doc_id=06e18fc0-f6e6-4b66-9ddb-c57806449554.json
             ├── __init__.py
             ├── inspect.py
             └── report.py
@@ -1570,6 +1593,7 @@ deep_rag_backend/
             ├── log.py
             └── update.py
         ├── __init__.py
+        ├── confidence.py
         ├── db_utils.py
         ├── diagnostics.py
         ├── mmr.py
@@ -1604,8 +1628,11 @@ deep_rag_backend/
             ├── test_embeddings_multimodal.py
             ├── test_embeddings_text.py
             ├── test_embeddings_utils.py
+            ├── test_graph_nodes_retriever.py
+            ├── test_graph_nodes_synthesizer.py
             ├── test_llm_providers_gemini.py
             ├── test_llm_wrapper.py
+            ├── test_retrieval_confidence.py
             ├── test_retrieval_merge.py
             ├── test_retrieval_mmr_basic.py
             ├── test_retrieval_mmr_diversity.py
@@ -1624,16 +1651,32 @@ deep_rag_backend/
     ├── makefile
     ├── pyproject.toml
     └── requirements.txt
-deep_rag_frontend/
-    ├── .env.example
-    ├── api_client.py
-    ├── app.py
-    ├── docker-compose.yml
+deep_rag_frontend_vue/
+    ├── src/
+        ├── components/
+            ├── ChatHeader.vue
+            ├── ChatInput.vue
+            ├── ChatMessages.vue
+            └── Sidebar.vue
+        ├── services/
+            └── api.js
+        ├── stores/
+            └── app.js
+        ├── App.vue
+        ├── main.js
+        └── style.css
+    ├── .gitignore
     ├── Dockerfile
+    ├── index.html
+    ├── nginx.conf
+    ├── package-lock.json
+    ├── package.json
+    ├── postcss.config.js
     ├── README.md
-    ├── requirements.txt
-    └── SUGGESTED_ROUTES.md
+    ├── tailwind.config.js
+    └── vite.config.js
 md_guides/
+    ├── CONFIDENCE_CONFIG.md
     ├── EMBEDDING_OPTIONS.md
     ├── ENTRY_POINTS_AND_SCENARIOS.md
     ├── ENVIRONMENT_SETUP.md

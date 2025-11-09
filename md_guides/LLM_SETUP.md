@@ -107,6 +107,7 @@ If you need to use LLaVA for vision tasks:
 After switching providers, test with:
 
 ```bash
+# From project root
 docker compose exec api python -m inference.cli query "What is the technical assessment about?"
 ```
 

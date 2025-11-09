@@ -38,15 +38,16 @@ Deep RAG provides multiple entry points (CLI, Make, TOML, REST API) for differen
 
 **Example**:
 ```bash
-# CLI
-python inference/cli.py ingest "path/to/file.pdf"
-python inference/cli.py ingest "path/to/file.pdf" --title "Custom Title"
+# CLI (from deep_rag_backend directory)
+cd deep_rag_backend
+python -m inference.cli ingest "path/to/file.pdf"
+python -m inference.cli ingest "path/to/file.pdf" --title "Custom Title"
 
-# Make
+# Make (from project root)
 make cli-ingest FILE="path/to/file.pdf" DOCKER=true
 make cli-ingest FILE="path/to/file.pdf" DOCKER=true TITLE="Custom Title"
 
-# REST API
+# REST API (from any directory)
 curl -X POST http://localhost:8000/ingest \
   -F "attachment=@path/to/file.pdf" \
   -F "title=Optional Document Title"
@@ -74,21 +75,23 @@ curl -X POST http://localhost:8000/ingest \
 
 **Example**:
 ```bash
-# CLI - Query all documents
-python inference/cli.py query "What are the main sections?"
+# CLI (from deep_rag_backend directory)
+cd deep_rag_backend
+# Query all documents
+python -m inference.cli query "What are the main sections?"
 
-# CLI - Query specific document
-python inference/cli.py query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000
+# Query specific document
+python -m inference.cli query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000
 
-# CLI - Query with cross-doc enabled
-python inference/cli.py query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --cross-doc
+# Query with cross-doc enabled
+python -m inference.cli query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --cross-doc
 
-# Make
+# Make (from project root)
 make query Q="What are the requirements?" DOCKER=true
 make query Q="What are the requirements?" DOCKER=true DOC_ID=550e8400-e29b-41d4-a716-446655440000
 make query Q="What are the requirements?" DOCKER=true DOC_ID=550e8400-e29b-41d4-a716-446655440000 CROSS_DOC=true
 
-# REST API
+# REST API (from any directory)
 curl -X POST http://localhost:8000/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "What are the requirements?", "doc_id": "550e8400-e29b-41d4-a716-446655440000", "cross_doc": true}'
@@ -116,20 +119,22 @@ curl -X POST http://localhost:8000/ask \
 
 **Example**:
 ```bash
-# CLI - Query all documents
-python inference/cli.py query-graph "What are the specific requirements?" --thread-id session-1
+# CLI (from deep_rag_backend directory)
+cd deep_rag_backend
+# Query all documents
+python -m inference.cli query-graph "What are the specific requirements?" --thread-id session-1
 
-# CLI - Query specific document
-python inference/cli.py query-graph "What are the specific requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --thread-id session-1
+# Query specific document
+python -m inference.cli query-graph "What are the specific requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --thread-id session-1
 
-# CLI - Query with cross-doc enabled
-python inference/cli.py query-graph "What are the specific requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --thread-id session-1 --cross-doc
+# Query with cross-doc enabled
+python -m inference.cli query-graph "What are the specific requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --thread-id session-1 --cross-doc
 
-# Make
+# Make (from project root)
 make query-graph Q="What are the specific requirements?" DOCKER=true THREAD_ID=session-1
 make query-graph Q="What are the specific requirements?" DOCKER=true THREAD_ID=session-1 DOC_ID=550e8400-e29b-41d4-a716-446655440000 CROSS_DOC=true
 
-# REST API
+# REST API (from any directory)
 curl -X POST http://localhost:8000/ask-graph \
   -H "Content-Type: application/json" \
   -d '{"question": "What are the specific requirements?", "thread_id": "session-1", "doc_id": "550e8400-e29b-41d4-a716-446655440000", "cross_doc": true}'
@@ -141,7 +146,7 @@ curl -X POST http://localhost:8000/ask-graph \
 3. If `doc_id` is provided: Retrieval is filtered to that specific document
 4. If `--cross-doc` is enabled: Two-stage retrieval (see `--cross-doc` flag documentation)
 5. Answer is generated with document context when available
-6. **Reasoning logs are saved** to `inference/graph/logs/` for SFT training
+6. **Reasoning logs are saved** to `deep_rag_backend/inference/graph/logs/` for SFT training (production) or `deep_rag_backend/inference/graph/logs/test_logs/` for test executions
 
 **When to Use**:
 - Complex questions requiring multi-step reasoning
@@ -160,20 +165,22 @@ curl -X POST http://localhost:8000/ask-graph \
 
 **Example**:
 ```bash
-# CLI - Ingest + Query
-python inference/cli.py infer "What does this document say?" --file "path/to/file.pdf"
+# CLI (from deep_rag_backend directory)
+cd deep_rag_backend
+# Ingest + Query
+python -m inference.cli infer "What does this document say?" --file "path/to/file.pdf"
 
-# CLI - Ingest + Query with custom title
-python inference/cli.py infer "What does this document say?" --file "path/to/file.pdf" --title "Doc Title"
+# Ingest + Query with custom title
+python -m inference.cli infer "What does this document say?" --file "path/to/file.pdf" --title "Doc Title"
 
-# CLI - Ingest + Query with cross-doc enabled
-python inference/cli.py infer "What does this document say?" --file "path/to/file.pdf" --cross-doc
+# Ingest + Query with cross-doc enabled
+python -m inference.cli infer "What does this document say?" --file "path/to/file.pdf" --cross-doc
 
-# Make
+# Make (from project root)
 make infer Q="What does this document say?" FILE="path/to/file.pdf" DOCKER=true
 make infer Q="What does this document say?" FILE="path/to/file.pdf" TITLE="Doc Title" CROSS_DOC=true DOCKER=true
 
-# REST API
+# REST API (from any directory)
 curl -X POST http://localhost:8000/infer \
   -F "question=What does this document say about RAG systems?" \
   -F "attachment=@path/to/file.pdf" \
@@ -204,19 +211,21 @@ curl -X POST http://localhost:8000/infer \
 
 **Example**:
 ```bash
-# CLI - Ingest + Query
-python inference/cli.py infer-graph "Analyze this document" --file "path/to/file.pdf" --thread-id session-1
+# CLI (from deep_rag_backend directory)
+cd deep_rag_backend
+# Ingest + Query
+python -m inference.cli infer-graph "Analyze this document" --file "path/to/file.pdf" --thread-id session-1
 
-# CLI - Ingest + Query with custom title
-python inference/cli.py infer-graph "Analyze this document" --file "path/to/file.pdf" --title "Doc Title" --thread-id session-1
+# Ingest + Query with custom title
+python -m inference.cli infer-graph "Analyze this document" --file "path/to/file.pdf" --title "Doc Title" --thread-id session-1
 
-# CLI - Ingest + Query with cross-doc enabled
-python inference/cli.py infer-graph "Analyze this document" --file "path/to/file.pdf" --thread-id session-1 --cross-doc
+# Ingest + Query with cross-doc enabled
+python -m inference.cli infer-graph "Analyze this document" --file "path/to/file.pdf" --thread-id session-1 --cross-doc
 
-# Make
+# Make (from project root)
 make infer-graph Q="Analyze this document" FILE="path/to/file.pdf" TITLE="Doc Title" DOCKER=true THREAD_ID=session-1
 
-# REST API
+# REST API (from any directory)
 curl -X POST http://localhost:8000/infer-graph \
   -F "question=What are the key requirements for this RAG system?" \
   -F "attachment=@path/to/file.pdf" \
@@ -250,8 +259,10 @@ curl -X POST http://localhost:8000/infer-graph \
 
 **Example**:
 ```bash
+# CLI (from deep_rag_backend directory)
+cd deep_rag_backend
 # Query with doc_id + cross-doc
-python inference/cli.py query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --cross-doc
+python -m inference.cli query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --cross-doc
 ```
 
 **What Happens**:
@@ -272,8 +283,10 @@ python inference/cli.py query "What are the requirements?" --doc-id 550e8400-e29
 
 **Example**:
 ```bash
+# CLI (from deep_rag_backend directory)
+cd deep_rag_backend
 # Query all documents with cross-doc enabled
-python inference/cli.py query "What are the requirements?" --cross-doc
+python -m inference.cli query "What are the requirements?" --cross-doc
 ```
 
 **What Happens**:
@@ -340,12 +353,14 @@ python inference/cli.py query "What are the requirements?" --cross-doc
 
 **Example**:
 ```bash
+# CLI (from deep_rag_backend directory)
+cd deep_rag_backend
 # Ingest documents
-python inference/cli.py ingest "research_paper_1.pdf"
-python inference/cli.py ingest "research_paper_2.pdf"
+python -m inference.cli ingest "research_paper_1.pdf"
+python -m inference.cli ingest "research_paper_2.pdf"
 
 # Query with cross-doc
-python inference/cli.py query-graph "What are the key findings across these papers?" --thread-id research-session --cross-doc
+python -m inference.cli query-graph "What are the key findings across these papers?" --thread-id research-session --cross-doc
 ```
 
 ---
@@ -360,11 +375,13 @@ python inference/cli.py query-graph "What are the key findings across these pape
 
 **Example**:
 ```bash
+# CLI (from deep_rag_backend directory)
+cd deep_rag_backend
 # Ingest + Query
-python inference/cli.py infer "What are the main points?" --file "document.pdf"
+python -m inference.cli infer "What are the main points?" --file "document.pdf"
 
 # Ingest + Query with cross-doc
-python inference/cli.py infer "What are the main points?" --file "document.pdf" --cross-doc
+python -m inference.cli infer "What are the main points?" --file "document.pdf" --cross-doc
 ```
 
 ---
@@ -381,15 +398,17 @@ python inference/cli.py infer "What are the main points?" --file "document.pdf" 
 
 **Example**:
 ```bash
+# CLI (from deep_rag_backend directory)
+cd deep_rag_backend
 # Ingest documents
-python inference/cli.py ingest "knowledge_base_doc_1.pdf"
-python inference/cli.py ingest "knowledge_base_doc_2.pdf"
+python -m inference.cli ingest "knowledge_base_doc_1.pdf"
+python -m inference.cli ingest "knowledge_base_doc_2.pdf"
 
 # Inspect documents
-python inference/cli.py inspect --title "knowledge_base_doc_1"
+python -m inference.cli inspect --title "knowledge_base_doc_1"
 
 # Query documents
-python inference/cli.py query "What is in the knowledge base?" --cross-doc
+python -m inference.cli query "What is in the knowledge base?" --cross-doc
 ```
 
 ---

@@ -5,177 +5,166 @@ It combines deterministic PDF parsing with hybrid (lexical + vector) retrieval, 
 
 ---
 
-# 📂 Directory Structure
+# 🚀 Quick Start
+
+## Project Structure
+
+The project is organized into separate backend and frontend components:
+
+```
+deep_rag/                          # Project root
+├── deep_rag_backend/              # Backend API (FastAPI)
+│   ├── inference/                 # API routes, agents, LangGraph
+│   ├── ingestion/                 # Document ingestion pipeline
+│   ├── retrieval/                 # Hybrid retrieval system
+│   ├── tests/                     # Test suite
+│   ├── Dockerfile                 # Backend Docker image
+│   ├── docker-compose.yml         # Backend standalone compose
+|   └── .env.example               # API environment template
+│
+├── deep_rag_frontend/             # Frontend UI (Streamlit)
+│   ├── app.py                     # Main Streamlit app
+│   ├── api_client.py              # API client wrapper
+│   ├── Dockerfile                 # Frontend Docker image
+│   ├── docker-compose.yml         # Frontend standalone compose
+|   └── .env.example               # Frontend environment template
+│
+├── vector_db/                     # Database schemas and migrations
+│   ├── schema_multimodal.sql      # Main schema
+│   ├── migration_*.sql            # Migration scripts
+│   ├── docker-compose.yml         # Database standalone compose
+│   └── .env.example               # Database environment template
+│
+├── docker-compose.yml             # Full stack orchestration (all 3 services)
+├── .env.example                   # Root environment template (all services)
+├── .gitignore                     # Root gitignore
+├── md_guides/                     # Markdown guides
+└── README.md                      # This file
+```
+
+## Docker Deployment
+
+All Docker images use **Python 3.11** to ensure compatibility with Google Gemini SDK.
+
+### Full Stack (Recommended)
+
+Run all three services together (database, backend API, frontend):
 
 ```bash
-deep_rag/
-├── inference/                    # Inference pipeline and API
-│   ├── cli.py                    # Typer CLI interface matching FastAPI service routes
-│   ├── service.py                # FastAPI REST API entrypoint with all endpoints
-│   ├── agents/                   # Direct pipeline: modularized agent components
-│   │   ├── __init__.py
-│   │   ├── pipeline.py           # Main pipeline orchestrator
-│   │   ├── state.py              # State TypedDict definition
-│   │   ├── constants.py          # Pipeline constants (MAX_ITERS, THRESH)
-│   │   ├── planner.py            # Planning agent
-│   │   ├── retriever.py          # Retrieval agent
-│   │   ├── compressor.py         # Compression agent
-│   │   ├── critic.py             # Critic agent
-│   │   └── synthesizer.py        # Synthesis agent
-│   ├── llm/                      # LLM provider interface (modularized)
-│   │   ├── __init__.py
-│   │   ├── wrapper.py            # Unified LLM interface
-│   │   ├── config.py             # LLM configuration and env vars
-│   │   └── providers/            # LLM provider implementations
-│   │       ├── __init__.py
-│   │       └── gemini.py         # Google Gemini provider
-│   ├── graph/                    # LangGraph pipeline
-│   │   ├── graph.py              # Legacy wrapper (backward compatibility)
-│   │   ├── graph_wrapper.py      # Wrapper for LangGraph pipeline with logging
-│   │   ├── graph_viz.py          # Graph visualization export (PNG/Mermaid)
-│   │   ├── state.py              # GraphState TypedDict definition
-│   │   ├── constants.py          # Graph constants (MAX_ITERS, THRESH)
-│   │   ├── builder.py            # Graph builder and compiler
-│   │   ├── routing.py            # Conditional routing logic
-│   │   ├── agent_logger.py       # Agent logging for SFT training
-│   │   └── nodes/                # Individual graph nodes
-│   │       ├── __init__.py
-│   │       ├── planner.py
-│   │       ├── retriever.py
-│   │       ├── compressor.py
-│   │       ├── critic.py
-│   │       ├── refine_retrieve.py
-│   │       └── synthesizer.py
-│   ├── commands/                 # CLI command modules
-│   │   ├── __init__.py
-│   │   ├── ingest.py
-│   │   ├── query.py
-│   │   ├── query_graph.py
-│   │   ├── infer.py
-│   │   ├── infer_graph.py
-│   │   ├── inspect.py
-│   │   ├── graph.py
-│   │   ├── health.py
-│   │   └── test.py
-│   ├── routes/                   # FastAPI route modules
-│   │   ├── __init__.py
-│   │   ├── ingest.py
-│   │   ├── ask.py
-│   │   ├── ask_graph.py
-│   │   ├── infer.py
-│   │   ├── infer_graph.py
-│   │   ├── diagnostics.py
-│   │   ├── graph_export.py
-│   │   ├── health.py
-│   │   └── models.py
-│   └── samples/                  # Sample PDFs + Images for testing
-│
-├── ingestion/                    # Document ingestion pipeline
-│   ├── ingest.py                 # Main PDF ingestion orchestrator
-│   ├── ingest_text.py            # Plain text file ingestion
-│   ├── ingest_image.py           # Image file ingestion (PNG, JPEG) with OCR
-│   ├── ingest_unified.py         # Unified ingestion interface
-│   ├── pdf_extract.py            # PDF text extraction with OCR fallback
-│   ├── chunking.py               # Semantic chunking logic
-│   ├── title_extract.py          # Document title extraction
-│   ├── db_ops/                   # Database operations (modularized)
-│   │   ├── __init__.py
-│   │   ├── document.py           # Document upsert operations
-│   │   └── chunks.py             # Chunk upsert operations
-│   └── embeddings/               # Multi-modal embedding system (modularized)
-│       ├── __init__.py
-│       ├── model.py              # CLIP model loading and configuration
-│       ├── text.py               # Text embedding generation
-│       ├── image.py              # Image embedding generation
-│       ├── multimodal.py         # Multi-modal embedding utilities
-│       ├── batch.py              # Batch embedding operations
-│       └── utils.py              # Embedding utilities
-│
-├── retrieval/                    # Hybrid retrieval system
-│   ├── retrieval.py              # Main hybrid retrieval orchestrator
-│   ├── sanitize.py               # Query sanitization for SQL
-│   ├── mmr.py                    # Maximal Marginal Relevance (MMR) diversity
-│   ├── vector_utils.py           # Vector utility functions
-│   ├── wait.py                   # Wait for chunks to be available
-│   ├── db_utils.py               # Centralized database connection utilities
-│   ├── sql/                      # SQL query generation (modularized)
-│   │   ├── __init__.py
-│   │   ├── hybrid.py             # Hybrid SQL query with doc_id filter
-│   │   └── exclusion.py          # Hybrid SQL query with doc_id exclusion
-│   ├── reranker/                 # Cross-encoder reranking (modularized)
-│   │   ├── __init__.py
-│   │   ├── model.py              # Reranker model loading
-│   │   └── rerank.py             # Reranking logic
-│   ├── stages/                   # Two-stage retrieval (modularized)
-│   │   ├── __init__.py
-│   │   ├── stage_one.py          # Stage 1: Primary retrieval
-│   │   ├── stage_two.py          # Stage 2: Cross-document retrieval
-│   │   └── merge.py              # Merge and deduplicate results
-│   ├── diagnostics/              # Diagnostic tools (modularized)
-│   │   ├── __init__.py
-│   │   ├── inspect.py            # Document inspection
-│   │   └── report.py             # Inspection report generation
-│   ├── thread_tracking/          # Thread tracking and audit logging (modularized)
-│   │   ├── __init__.py
-│   │   ├── log.py                # Log thread interactions
-│   │   ├── get.py                # Retrieve thread interactions
-│   │   └── update.py             # Update thread interactions
-│   └── diagnostics.py            # Legacy wrapper (backward compatibility)
-│
-├── tests/                        # Comprehensive test suite
-│   ├── __init__.py
-│   ├── conftest.py               # Pytest configuration and fixtures
-│   ├── unit/                     # Unit tests
-│   │   ├── __init__.py
-│   │   ├── test_retrieval_sql.py
-│   │   ├── test_retrieval_sanitize.py
-│   │   ├── test_retrieval_mmr_basic.py
-│   │   ├── test_retrieval_mmr_diversity.py
-│   │   ├── test_retrieval_vector_utils.py
-│   │   ├── test_retrieval_wait.py
-│   │   ├── test_retrieval_merge.py
-│   │   ├── test_llm_wrapper.py
-│   │   ├── test_llm_providers_gemini.py
-│   │   └── test_embeddings_text.py  # Embedding model and text embedding tests
-│   └── integration/              # Integration tests
-│       ├── __init__.py
-│       ├── test_llm_providers.py
-│       ├── test_llm_providers_gemini.py
-│       ├── test_llm_providers_openai.py
-│       ├── test_llm_providers_ollama.py
-│       └── test_database_schema.py  # Database schema verification tests
-│
-├── vector_db/                    # Database schema and migrations
-│   ├── schema_multimodal.sql     # Multi-modal schema for CLIP embeddings (768 dims)
-│   ├── migration_add_multimodal.sql  # Migration for multi-modal support
-│   ├── migration_add_thread_tracking.sql  # Migration for thread tracking table
-│   ├── ingestion_schema.sql      # Legacy schema (for reference)
-│   └── docker-compose.yml        # Stand-alone DB service (pgvector)
-│
-├── scripts/                      # Docker and deployment scripts
-│   ├── entrypoint.sh             # Docker container entrypoint (runs tests on startup if enabled)
-│   ├── test_endpoints_make.sh   # Endpoint testing via Make commands
-│   ├── test_endpoints_rest.sh   # Endpoint testing via REST API (curl)
-│   ├── test_endpoints_quick.sh  # Quick endpoint test (one of each type)
-│   ├── ENDPOINT_TESTING_GUIDE.md # Comprehensive endpoint testing guide
-│   └── README_TEST_ENDPOINTS.md  # Endpoint testing script documentation
-│
-├── md_guides/                    # Documentation guides
-│   ├── EMBEDDING_OPTIONS.md      # Embedding model options and recommendations
-│   ├── LLM_SETUP.md              # LLM provider setup guide
-│   ├── PROJECT_ASSESSMENT.md     # Project assessment requirements
-│   ├── RESET_DB.md               # Database reset instructions
-│   ├── SETUP_GUIDE.md            # Detailed setup guide
-│   ├── ENTRY_POINTS_AND_SCENARIOS.md  # Entry point scenarios and use cases
-│   └── THREAD_TRACKING_AND_AUDIT.md   # Thread tracking and audit logging
-│
-├── .env.example                  # Example environment variables (copy to .env and fill in your values)
-├── requirements.txt              # Python dependencies
-├── pyproject.toml                # Project metadata, dependencies, and pytest config
-├── makefile                      # Convenience make commands for common tasks
-├── Dockerfile                    # API container definition
-└── docker-compose.yml            # Root-level orchestration (API + DB)
+# From project root (deep_rag/)
+docker-compose up -d
+
+# Services will be available at:
+# - Frontend: http://localhost:8501
+# - Backend API: http://localhost:8000
+# - Database: localhost:5432
 ```
+
+**View logs:**
+```bash
+# All services
+docker-compose logs -f
+
+# Specific service
+docker-compose logs -f api
+docker-compose logs -f frontend
+docker-compose logs -f db
+```
+
+**Stop services:**
+```bash
+docker-compose down
+```
+
+### Independent Services
+
+Each service can run independently with its own `docker-compose.yml`:
+
+**Backend Only:**
+```bash
+cd deep_rag_backend
+docker-compose up -d
+# Backend API: http://localhost:8000
+# Note: Requires database to be running separately
+```
+
+**Frontend Only:**
+```bash
+cd deep_rag_frontend
+docker-compose up -d
+# Frontend: http://localhost:8501
+# Note: Requires backend API to be running
+# Set API_BASE_URL in .env to point to backend
+```
+
+**Database Only:**
+```bash
+cd vector_db
+docker-compose up -d
+# Database: localhost:5432
+# Note: Other services can connect to this database
+```
+
+## Environment Setup
+
+<details>
+<summary><strong>Root `.env` File (Full Stack)</strong> - Click to expand</summary>
+
+Create `.env` file in project root (`deep_rag/`):
+
+```bash
+# Copy example file
+cp .env.example .env
+
+# Edit .env and fill in required values:
+#   - Database credentials (DB_USER, DB_PASS, DB_NAME)
+#   - LLM API key (GEMINI_API_KEY)
+#   - Embedding model (CLIP_MODEL, EMBEDDING_DIM)
+#   - Frontend configuration (API_BASE_URL, FRONTEND_PORT)
+```
+
+**Required Variables:**
+- **Database**: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`
+- **LLM**: `LLM_PROVIDER`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `LLM_TEMPERATURE`
+- **Embeddings**: `CLIP_MODEL`, `EMBEDDING_DIM`
+
+**Optional Variables:**
+- **Startup Tests**: `RUN_TESTS_ON_STARTUP` (set to `true` to run database schema tests on container startup)
+- **Endpoint Tests on Boot**: `AUTOMATE_ENDPOINT_RUNS_ON_BOOT` (set to `true` to run endpoint tests after `make up-and-test`)
+
+See [`md_guides/ENVIRONMENT_SETUP.md`](md_guides/ENVIRONMENT_SETUP.md) for detailed configuration options.
+
+</details>
+
+<details>
+<summary><strong>Component-Specific `.env` Files (Independent Services)</strong> - Click to expand</summary>
+
+If running services independently, create component-specific `.env` files:
+
+**Backend `.env` (from `deep_rag_backend/` directory):**
+```bash
+cd deep_rag_backend
+cp .env.example .env
+# Edit with backend-specific values
+```
+
+**Frontend `.env` (from `deep_rag_frontend/` directory):**
+```bash
+cd deep_rag_frontend
+cp .env.example .env
+# Edit with frontend-specific values (API_BASE_URL)
+```
+
+**Database `.env` (from `vector_db/` directory):**
+```bash
+cd vector_db
+cp .env.example .env
+# Edit with database credentials
+```
+
+**Note:** Never commit `.env` files to git - they contain sensitive information.
+
+</details>
 
 ---
 
@@ -188,9 +177,9 @@ The Deep RAG system provides multiple entry points (CLI, Make, TOML, REST API) f
 | CLI Command | Make Script | REST Endpoint | Pipeline | Purpose |
 |------------|-------------|---------------|----------|---------|
 | `ingest` | `make cli-ingest` | `POST /ingest` | Direct | **Ingestion only**: Embeds documents into vector DB without querying. Use when you want to pre-populate your knowledge base. |
-| `query` | `make query` | `POST /ask` | Direct (`inference/agents/pipeline.py`) | **Query only (direct pipeline)**: Fast, deterministic pipeline for simple queries. No conditional routing. Best for straightforward questions. Supports `--doc-id` and `--cross-doc` flags. |
+| `query` | `make query` | `POST /ask` | Direct (`deep_rag_backend/inference/agents/pipeline.py`) | **Query only (direct pipeline)**: Fast, deterministic pipeline for simple queries. No conditional routing. Best for straightforward questions. Supports `--doc-id` and `--cross-doc` flags. |
 | `query-graph` | `make query-graph` | `POST /ask-graph` | LangGraph | **Query only (LangGraph)**: Agentic pipeline with conditional routing. Agents can refine queries and retrieve more evidence if confidence is low. Best for complex questions requiring iterative reasoning. Supports `--doc-id`, `--thread-id`, and `--cross-doc` flags. |
-| `infer` | `make infer` | `POST /infer` | Direct (`inference/agents/pipeline.py`) | **Ingest + Query (direct pipeline)**: Combined ingestion and querying in one operation. Use when you have a document and want immediate answers with fast, deterministic processing. Supports `--file`, `--title`, and `--cross-doc` flags. |
+| `infer` | `make infer` | `POST /infer` | Direct (`deep_rag_backend/inference/agents/pipeline.py`) | **Ingest + Query (direct pipeline)**: Combined ingestion and querying in one operation. Use when you have a document and want immediate answers with fast, deterministic processing. Supports `--file`, `--title`, and `--cross-doc` flags. |
 | `infer-graph` | `make infer-graph` | `POST /infer-graph` | LangGraph | **Ingest + Query (LangGraph)**: Combined ingestion with agentic reasoning. Best when you need to ingest and then perform complex reasoning over the new content. Supports `--file`, `--title`, `--thread-id`, and `--cross-doc` flags. |
 | `health` | `make health` | `GET /health` | - | **Health check**: Verifies database connectivity and service availability. |
 | `graph` | `make graph` | `GET /graph` | LangGraph | **Graph export**: Exports LangGraph pipeline visualization as PNG or Mermaid diagram. Useful for understanding the agentic flow. |
@@ -203,8 +192,8 @@ The Deep RAG system provides multiple entry points (CLI, Make, TOML, REST API) f
 
 ### Pipeline Comparison
 
-- **Direct Pipeline** (`inference/agents/pipeline.py`): Linear execution, faster, deterministic. Best for simple queries.
-- **LangGraph Pipeline** (`inference/graph/builder.py`): Conditional routing, agents can refine queries, iterative retrieval. Best for complex questions requiring multi-step reasoning.
+- **Direct Pipeline** (`deep_rag_backend/inference/agents/pipeline.py`): Linear execution, faster, deterministic. Best for simple queries.
+- **LangGraph Pipeline** (`deep_rag_backend/inference/graph/builder.py`): Conditional routing, agents can refine queries, iterative retrieval. Best for complex questions requiring multi-step reasoning.
 
 For detailed scenarios and use cases for each entry point, see [`md_guides/ENTRY_POINTS_AND_SCENARIOS.md`](md_guides/ENTRY_POINTS_AND_SCENARIOS.md).
 
@@ -216,7 +205,7 @@ For detailed scenarios and use cases for each entry point, see [`md_guides/ENTRY
 |-------|--------------|
 | **Ingestion** | Multi-modal ingestion: PDFs (text + OCR), plain text files, and images (PNG/JPEG). Extracts text using PyMuPDF (`fitz`) with OCR fallback (`pytesseract`). Chunks and embeds with **CLIP-ViT-L/14** (`sentence-transformers/clip-ViT-L-14`) into unified **768-dimensional vectors** in Postgres + pgvector. **Upgraded from ViT-B/32 (512 dims)** for better semantic representation. |
 | **Retrieval** | Hybrid search combining pg_trgm (BM25-style) lexical scores + vector similarity (cosine distance). Reranked by a cross-encoder (`bge-reranker-base`). Supports multi-modal queries (text + images). Dynamically supports 512 or 768 dimensional embeddings. **Supports two-stage retrieval with `--cross-doc` flag** for cross-document semantic search. |
-| **Agentic Loop** | Two pipeline options: (1) **Direct pipeline** (`inference/agents/pipeline.py`): Linear execution (plan → retrieve → compress → reflect → synthesize). (2) **LangGraph pipeline** (`inference/graph/builder.py`): Conditional routing with iterative refinement - agents can refine queries and retrieve more evidence when confidence < threshold. **Includes comprehensive logging** to CSV/TXT for future SFT training. |
+| **Agentic Loop** | Two pipeline options: (1) **Direct pipeline** (`deep_rag_backend/inference/agents/pipeline.py`): Linear execution (plan → retrieve → compress → reflect → synthesize). (2) **LangGraph pipeline** (`deep_rag_backend/inference/graph/builder.py`): Conditional routing with iterative refinement - agents can refine queries and retrieve more evidence when confidence < threshold. **Includes comprehensive logging** to CSV/TXT for future SFT training. |
 | **LLM Integration** | Currently using **Google Gemini** for agentic reasoning. **Recommended models**: `gemini-1.5-flash` (1M token context, best balance) or `gemini-2.0-flash` (latest, improved reasoning). Alternative: `gemini-2.5-flash-lite` for faster, lightweight processing. Code structure supports future integration with OpenAI, Ollama, and LLaVA. |
 | **Multi-modal Support** | Unified embedding space for text and images using CLIP-ViT-L/14 (768 dims), enabling semantic search across different content types with better representation than ViT-B/32. |
 | **Cross-Document Retrieval** | **NEW**: `--cross-doc` flag enables two-stage retrieval. When `doc_id` is provided: Stage 1 retrieves from the specified document, Stage 2 uses combined query (original + retrieved content) for semantic search across all documents. When no `doc_id`: Enables general cross-document semantic search. Results are merged and deduplicated. |
@@ -258,24 +247,23 @@ The `--cross-doc` flag enables **cross-document retrieval**, allowing the system
 
 **Use Case**: When you want the most comprehensive answer possible from your entire knowledge base.
 
-### Examples
+<details>
+<summary><strong>Examples</strong> - Click to expand</summary>
 
-#### CLI
+#### CLI (from `deep_rag_backend/` directory)
 ```bash
-# Query with doc_id only (strict filtering)
-python inference/cli.py query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000
-
+cd deep_rag_backend
 # Query with doc_id + cross-doc (two-stage retrieval)
-python inference/cli.py query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --cross-doc
+python -m inference.cli query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --cross-doc
 
 # Query all documents with cross-doc enabled
-python inference/cli.py query "What are the requirements?" --cross-doc
+python -m inference.cli query "What are the requirements?" --cross-doc
 
 # Ingest + Query with cross-doc
-python inference/cli.py infer "What does this document say?" --file "path/to/file.pdf" --cross-doc
+python -m inference.cli infer "What does this document say?" --file "path/to/file.pdf" --cross-doc
 ```
 
-#### Make
+#### Make (from project root `deep_rag/`)
 ```bash
 # Query with doc_id + cross-doc
 make query Q="What are the requirements?" DOC_ID=550e8400-e29b-41d4-a716-446655440000 CROSS_DOC=true DOCKER=true
@@ -299,6 +287,8 @@ curl -X POST http://localhost:8000/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "What are the requirements?", "cross_doc": true}'
 ```
+
+</details>
 
 ### When to Use `--cross-doc`
 
@@ -424,25 +414,63 @@ cd deep_rag
 
 ### 2. Create Virtual Environment
 ```bash
+# Ensure Python 3.11+ is installed
+python --version  # Should be 3.11 or higher
+
+# Create virtual environment
 python -m venv .venv
-source .venv/bi-ctivate      # On Windows: .venv\Scripts\activate
+source .venv/bin/activate      # On Windows: .venv\Scripts\activate
 ```
 
 ### 3. Install Dependencies
+
+**For Backend:**
 ```bash
+cd deep_rag_backend
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+**For Frontend:**
+```bash
+cd deep_rag_frontend
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
 ### 4. Configure Environment
-Create a `.env` file in the project root by copying the example file:
+
+<details>
+<summary><strong>Environment Setup Details</strong> - Click to expand</summary>
+
+**Root `.env` file (for full stack):**
 ```bash
-# Copy the example file
+# From project root (deep_rag/)
 cp .env.example .env
 
-# Then edit .env with your actual credentials and API keys
-# Never commit .env to git - it contains sensitive information
+# Edit .env and fill in:
+#   - Database credentials (DB_USER, DB_PASS, DB_NAME)
+#   - LLM API key (GEMINI_API_KEY)
+#   - Embedding model (CLIP_MODEL, EMBEDDING_DIM)
 ```
+
+**Component-specific `.env` files (for independent services):**
+```bash
+# Backend (from deep_rag_backend/ directory)
+cd deep_rag_backend
+cp .env.example .env
+
+# Frontend (from deep_rag_frontend/ directory)
+cd deep_rag_frontend
+cp .env.example .env
+
+# Database (from vector_db/ directory)
+cd vector_db
+cp .env.example .env
+```
+
+Then edit `.env` files with your actual credentials and API keys.  
+**Never commit `.env` to git** - it contains sensitive information.
 
 The `.env.example` file contains all required environment variables with sample values. See [`md_guides/ENVIRONMENT_SETUP.md`](md_guides/ENVIRONMENT_SETUP.md) for detailed configuration options.
 
@@ -455,9 +483,13 @@ The `.env.example` file contains all required environment variables with sample 
 - **Startup Tests**: `RUN_TESTS_ON_STARTUP` (set to `true` to run database schema tests on container startup)
 - **Endpoint Tests on Boot**: `AUTOMATE_ENDPOINT_RUNS_ON_BOOT` (set to `true` to run endpoint tests after `make up-and-test`)
 
+</details>
+
 ### 5. Start Services
 ```bash
-# Option 1: Start full stack (API + DB)
+# All commands run from project root (deep_rag/)
+
+# Option 1: Start full stack (DB + API + Frontend)
 make up              # Or: docker compose up -d --build
 
 # Option 2: Start and run tests automatically
@@ -468,7 +500,7 @@ make up-and-test     # Starts services, then runs all tests to verify setup
 make db-up           # Or: cd vector_db && docker-compose up -d
 ```
 
-**Note:** The Docker container uses an entrypoint script (`scripts/entrypoint.sh`) that:
+**Note:** The Docker container uses an entrypoint script (`deep_rag_backend/scripts/entrypoint.sh`) that:
 - **Optionally runs database schema tests on startup** if `RUN_TESTS_ON_STARTUP=true` is set in your `.env`
   - Verifies all required tables exist (`documents`, `chunks`, `thread_tracking`)
   - Ensures database schema is properly initialized
@@ -487,7 +519,7 @@ AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true
 ```
 This will run `make test-endpoints` (full suite: Make + REST API) after `make up-and-test` completes, verifying all endpoints work correctly.
 
-See [`scripts/entrypoint.sh`](scripts/entrypoint.sh) for details on startup tests.
+See [`deep_rag_backend/scripts/entrypoint.sh`](deep_rag_backend/scripts/entrypoint.sh) for details on startup tests.
 
 ### 6. Verify Services
 ```bash
@@ -508,71 +540,99 @@ All entry points are organized below. Choose the method that best fits your work
 
 ## Via CLI (Command Line Interface)
 
-### Run Locally
+<details>
+<summary><strong>Run Locally</strong> - Click to expand</summary>
+
+**Important:** All commands below must be run from the **`deep_rag_backend/` directory**. Python needs to find the `inference` package in the local filesystem, which is located in `deep_rag_backend/inference/`.
+
+**Alternative:** After installing the project as a package (`pip install -e .` from project root), you can use the global `deep-rag` command from any directory (see [Via TOML Script](#via-toml-script-pyprojecttoml) section).
+
 ```bash
+# Navigate to backend directory first
+cd deep_rag_backend
+
 # Ingest a document
-python inference/cli.py ingest "path/to/file.pdf"
-python inference/cli.py ingest "path/to/file.pdf" --title "Custom Title"
+python -m inference.cli ingest "path/to/file.pdf"
+python -m inference.cli ingest "path/to/file.pdf" --title "Custom Title"
 
 # Query existing documents
-python inference/cli.py query "What are the main sections?"
-python inference/cli.py query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000
-python inference/cli.py query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --cross-doc
-python inference/cli.py query-graph "What are the requirements?" --thread-id session-1
-python inference/cli.py query-graph "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --thread-id session-1 --cross-doc
+python -m inference.cli query "What are the main sections?"
+python -m inference.cli query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000
+python -m inference.cli query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --cross-doc
+python -m inference.cli query-graph "What are the requirements?" --thread-id session-1
+python -m inference.cli query-graph "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --thread-id session-1 --cross-doc
 
 # Ingest + Query in one command
-python inference/cli.py infer "What does this document say?" --file "path/to/file.pdf"
-python inference/cli.py infer "What does this document say?" --file "path/to/file.pdf" --cross-doc
-python inference/cli.py infer-graph "Analyze this document" --file "path/to/file.pdf" --title "Doc Title" --thread-id session-1
+python -m inference.cli infer "What does this document say?" --file "path/to/file.pdf"
+python -m inference.cli infer "What does this document say?" --file "path/to/file.pdf" --cross-doc
+python -m inference.cli infer-graph "Analyze this document" --file "path/to/file.pdf" --title "Doc Title" --thread-id session-1
 
 # Inspect stored chunks and pages (debugging)
-python inference/cli.py inspect --title "Document Title"
-python inference/cli.py inspect --doc-id your-doc-id-here
-python inference/cli.py inspect  # List all documents
+python -m inference.cli inspect --title "Document Title"
+python -m inference.cli inspect --doc-id your-doc-id-here
+python -m inference.cli inspect  # List all documents
 
 # Export graph visualization
-python inference/cli.py graph --out deep_rag_graph.png
+python -m inference.cli graph --out deep_rag_graph.png
 
 # Health check
-python inference/cli.py health
+python -m inference.cli health
 
 # Testing
-python inference/cli.py test all          # Run all tests (unit + integration)
-python inference/cli.py test unit         # Run unit tests only
-python inference/cli.py test integration   # Run integration tests only
-python inference/cli.py test all --docker  # Run tests inside Docker container
+python -m inference.cli test all          # Run all tests (unit + integration)
+python -m inference.cli test unit         # Run unit tests only
+python -m inference.cli test integration   # Run integration tests only
 ```
 
-### Run Inside Docker
+</details>
+
+<details>
+<summary><strong>Run Inside Docker</strong> - Click to expand</summary>
+
+**Important:** All `docker compose` commands below must be run from the **project root** (`deep_rag/`). The `docker-compose.yml` file is located at the project root, and Docker Compose needs to find it to operate on the services.
+
+**Note:** Inside the Docker container, `inference` is a Python package (not a directory path). The backend code from `deep_rag_backend/` is mounted/copied into the container, making `inference` available as a Python module. The `api` service container references the `deep_rag_api` service defined in the root `docker-compose.yml`.
+
 ```bash
+# All commands below run from project root (deep_rag/)
+
 # Start the stack
 docker compose up -d --build
 
-# Ingest a document (inside Docker)
+# Ingest a document (inside Docker container)
 docker compose exec api python -m inference.cli ingest "inference/samples/file.pdf"
 docker compose exec api python -m inference.cli ingest "inference/samples/file.pdf" --title "Custom Title"
 
-# Query documents (inside Docker)
+# Query documents (inside Docker container)
 docker compose exec api python -m inference.cli query "What are the requirements?"
 docker compose exec api python -m inference.cli query "What are the requirements?" --doc-id 550e8400-e29b-41d4-a716-446655440000 --cross-doc
 docker compose exec api python -m inference.cli query-graph "Complex question" --thread-id session-1
 
-# Inspect stored chunks (inside Docker)
+# Inspect stored chunks (inside Docker container)
 docker compose exec api python -m inference.cli inspect --title "Document Title"
 docker compose exec api python -m inference.cli inspect --doc-id your-doc-id-here
 
-# Run tests (inside Docker)
+# Run tests (inside Docker container)
 docker compose exec api python -m inference.cli test all
 docker compose exec api python -m inference.cli test unit
 docker compose exec api python -m inference.cli test integration
 ```
 
+**Key Differences:**
+- **Local CLI** (above):** Requires `cd deep_rag_backend` because Python needs to find the `inference` package in the local filesystem
+- **Docker CLI** (here): Run from project root; `inference` is available inside the container as a Python package, so no directory navigation needed
+
+</details>
+
 ---
 
 ## Via Make Scripts
 
-**Install Make:**
+**Note:** All Make commands can be run from the **project root** (`deep_rag/`). The root Makefile orchestrates all services and delegates backend-specific commands to `deep_rag_backend/makefile` with proper directory context.
+
+<details>
+<summary><strong>Install Make</strong> - Click to expand</summary>
+
 ```bash
 # Check if installed
 make --version
@@ -583,13 +643,19 @@ make --version
 # Windows: choco install make
 ```
 
-### Common Commands
+</details>
+
+<details>
+<summary><strong>Common Commands</strong> - Click to expand</summary>
+
 ```bash
+# All commands run from project root (deep_rag/)
+
 # Start/stop services
-make up              # Start full stack (API + DB)
+make up              # Start full stack (DB + API + Frontend)
 make down            # Stop and remove containers/volumes
-make logs            # Tail API + DB logs
-make rebuild         # Rebuild API image and restart
+make logs            # Tail logs from all services
+make rebuild         # Rebuild all images and restart stack
 
 # DB-only operations
 make db-up           # Start DB only
@@ -600,12 +666,11 @@ make cli-ingest FILE="path/to/file.pdf" DOCKER=true
 make cli-ingest FILE="path/to/file.pdf" DOCKER=true TITLE="Custom Title"
 
 # Query documents
-# Query all documents
 make query Q="Your question here" DOCKER=true
 make query Q="Your question here" CROSS_DOC=true DOCKER=true
 make query-graph Q="Complex question" DOCKER=true THREAD_ID=session-1
 
-# Query specific document by doc_id (Scenario 3)
+# Query specific document by doc_id
 make query Q="What are the requirements?" DOCKER=true DOC_ID=550e8400-e29b-41d4-a716-446655440000
 make query Q="What are the requirements?" DOCKER=true DOC_ID=550e8400-e29b-41d4-a716-446655440000 CROSS_DOC=true
 make query-graph Q="What are the requirements?" DOCKER=true THREAD_ID=session-1 DOC_ID=550e8400-e29b-41d4-a716-446655440000 CROSS_DOC=true
@@ -628,15 +693,26 @@ make test                  # Run all tests (unit + integration)
 make unit-tests           # Run unit tests only
 make integration-tests    # Run integration tests only
 make test DOCKER=true     # Run tests inside Docker container
-make unit-tests DOCKER=true
-make integration-tests DOCKER=true
 
-# Endpoint Testing (NEW)
+# Endpoint Testing
 make test-endpoints       # Test all ingest/query/infer endpoints (Make + REST)
 make test-endpoints-make  # Test endpoints via Make commands
 make test-endpoints-rest  # Test endpoints via REST API (curl)
 make test-endpoints-quick # Quick test (one example of each endpoint type)
 ```
+
+**Alternative: Run from Backend Directory**
+
+If you prefer to run Make commands from the backend directory:
+```bash
+# From deep_rag_backend directory
+cd deep_rag_backend
+make up              # Start backend stack (uses backend docker-compose.yml)
+make query Q="..." DOCKER=true
+# ... etc
+```
+
+</details>
 
 ---
 
@@ -644,11 +720,18 @@ make test-endpoints-quick # Quick test (one example of each endpoint type)
 
 **Install project as package:**
 ```bash
+# From project root (deep_rag/)
 pip install -e .
 ```
 
-**Then use:**
+**Note:** Installing the root package will install all backend dependencies. The `deep-rag` CLI command will be available globally and will delegate to the backend CLI with proper path handling, allowing you to run commands from any directory.
+
+<details>
+<summary><strong>Command Examples</strong> - Click to expand</summary>
+
 ```bash
+# All commands can be run from any directory after installation
+
 # Ingest
 deep-rag ingest path/to/file.pdf
 deep-rag ingest path/to/file.pdf --title "Custom Title"
@@ -679,20 +762,32 @@ deep-rag test integration  # Run integration tests only
 deep-rag test all --docker # Run tests inside Docker container
 ```
 
+</details>
+
 ---
 
 ## Via REST API
 
-### Start the API Server
+<details>
+<summary><strong>Start the API Server</strong> - Click to expand</summary>
+
+**Important:** Docker Compose commands must be run from the **project root** (`deep_rag/`). Local server commands must be run from the **`deep_rag_backend/` directory**.
+
 ```bash
-# Start full stack
+# Option 1: Start full stack with Docker (from project root)
 docker compose up -d --build
 
-# Or run locally (requires dependencies installed)
+# Option 2: Run locally (requires dependencies installed, from deep_rag_backend directory)
+cd deep_rag_backend
 uvicorn inference.service:app --host 0.0.0.0 --port 8000
 ```
 
-### API Endpoints
+**Note:** The Docker approach is recommended as it handles all dependencies and service orchestration automatically.
+
+</details>
+
+<details>
+<summary><strong>API Endpoints</strong> - Click to expand</summary>
 
 #### POST /ingest (File Upload)
 ```bash
@@ -782,6 +877,8 @@ curl "http://localhost:8000/diagnostics/document?doc_id=your-doc-id-here"
 # List all documents (if no params provided)
 curl "http://localhost:8000/diagnostics/document"
 ```
+
+</details>
 
 ---
 
@@ -875,7 +972,7 @@ Deep RAG includes comprehensive unit and integration tests for all modules, agen
 ## Test Structure
 
 ```
-tests/
+deep_rag_backend/tests/
 ├── unit/                    # Unit tests for individual modules
 │   ├── test_retrieval_*.py  # Retrieval module tests
 │   ├── test_llm_*.py        # LLM provider tests
@@ -890,87 +987,64 @@ tests/
 
 ## Test Commands
 
-### Via Make Scripts
+<details>
+<summary><strong>Via Make Scripts</strong> - Click to expand</summary>
 
-**Run all tests (unit + integration):**
 ```bash
+# All commands run from project root (deep_rag/)
+
+# Run all tests (unit + integration)
 make test                  # Run all tests locally
 make test DOCKER=true      # Run all tests inside Docker container
-```
 
-**Run unit tests only:**
-```bash
+# Run unit tests only
 make unit-tests           # Run unit tests locally
 make unit-tests DOCKER=true  # Run unit tests inside Docker container
-```
 
-**Run integration tests only:**
-```bash
+# Run integration tests only
 make integration-tests    # Run integration tests locally
 make integration-tests DOCKER=true  # Run integration tests inside Docker container
-```
 
-**Test all endpoints (ingest, query, infer):**
-```bash
-# Quick test (recommended for first run)
-make test-endpoints-quick  # Tests one example of each endpoint type
-
-# Full test suite
-make test-endpoints        # Tests all endpoints via Make commands + REST API
+# Test all endpoints (ingest, query, infer)
+make test-endpoints-quick  # Quick test (one example of each endpoint type)
+make test-endpoints        # Full test suite (Make commands + REST API)
 make test-endpoints-make  # Test endpoints via Make commands only
 make test-endpoints-rest  # Test endpoints via REST API (curl) only
 ```
 
-**Note:** Endpoint testing scripts automatically:
-- Test all ingest, query, and infer endpoints
-- Verify all flag combinations (doc_id, cross_doc, thread_id)
-- Check logging and response formats
-- Extract doc_id from ingest responses for subsequent queries
+**Note:** Endpoint testing scripts automatically test all ingest, query, and infer endpoints, verify all flag combinations (doc_id, cross_doc, thread_id), and check logging and response formats.
 
-See [`scripts/ENDPOINT_TESTING_GUIDE.md`](scripts/ENDPOINT_TESTING_GUIDE.md) for detailed documentation.
+See [`deep_rag_backend/scripts/ENDPOINT_TESTING_GUIDE.md`](deep_rag_backend/scripts/ENDPOINT_TESTING_GUIDE.md) for detailed documentation.
 
-### Via CLI (Command Line Interface)
+</details>
 
-**Run all tests:**
+<details>
+<summary><strong>Via CLI (Command Line Interface)</strong> - Click to expand</summary>
+
+**Important:** Local commands must be run from **`deep_rag_backend/` directory**. Docker commands must be run from **project root** (`deep_rag/`).
+
 ```bash
-# Run locally
-python inference/cli.py test all
-python inference/cli.py test all --verbose  # Verbose output
-python inference/cli.py test all --quiet    # Quiet output
+# Run locally (from deep_rag_backend directory)
+cd deep_rag_backend
+python -m inference.cli test all
+python -m inference.cli test all --verbose  # Verbose output
+python -m inference.cli test unit
+python -m inference.cli test integration
 
-# Run inside Docker
-python inference/cli.py test all --docker
+# Run inside Docker (from project root)
+docker compose exec api python -m inference.cli test all
+docker compose exec api python -m inference.cli test unit
+docker compose exec api python -m inference.cli test integration
 ```
 
-**Run unit tests only:**
+</details>
+
+<details>
+<summary><strong>Via TOML Script (pyproject.toml)</strong> - Click to expand</summary>
+
 ```bash
-# Run locally
-python inference/cli.py test unit
-python inference/cli.py test unit --verbose
+# After installing: pip install -e . (from project root)
 
-# Run inside Docker
-python inference/cli.py test unit --docker
-```
-
-**Run integration tests only:**
-```bash
-# Run locally
-python inference/cli.py test integration
-python inference/cli.py test integration --verbose
-
-# Run inside Docker
-python inference/cli.py test integration --docker
-```
-
-### Via TOML Script (pyproject.toml)
-
-**Install project as package:**
-```bash
-pip install -e .
-```
-
-**Then use:**
-```bash
 # Run all tests
 deep-rag test all
 deep-rag test all --docker
@@ -979,61 +1053,53 @@ deep-rag test all --verbose
 # Run unit tests only
 deep-rag test unit
 deep-rag test unit --docker
-deep-rag test unit --verbose
 
 # Run integration tests only
 deep-rag test integration
 deep-rag test integration --docker
-deep-rag test integration --verbose
 ```
 
-### Via Direct Pytest
+</details>
 
-**Run all tests:**
+<details>
+<summary><strong>Via Direct Pytest</strong> - Click to expand</summary>
+
+**Important:** Local commands must be run from **`deep_rag_backend/` directory**. Docker commands must be run from **project root** (`deep_rag/`).
+
 ```bash
-# Run locally
+# Run locally (from deep_rag_backend directory)
+cd deep_rag_backend
 pytest tests/ -v
-
-# Run inside Docker
-docker compose exec api python -m pytest tests/ -v
-```
-
-**Run unit tests only:**
-```bash
-# Run locally
 pytest tests/unit/ -v
-
-# Run inside Docker
-docker compose exec api python -m pytest tests/unit/ -v
-```
-
-**Run integration tests only:**
-```bash
-# Run locally
 pytest tests/integration/ -v
 
-# Run inside Docker
+# Run inside Docker (from project root)
+docker compose exec api python -m pytest tests/ -v
+docker compose exec api python -m pytest tests/unit/ -v
 docker compose exec api python -m pytest tests/integration/ -v
 ```
 
-## Test Coverage
+</details>
+
+<details>
+<summary><strong>Test Coverage</strong> - Click to expand</summary>
 
 ### Unit Tests
 
 Unit tests cover:
-- **Retrieval modules**: `retrieval/sql/`, `retrieval/reranker/`, `retrieval/stages/`, `retrieval/sanitize.py`, `retrieval/mmr.py`, `retrieval/vector_utils.py`, `retrieval/wait.py`
+- **Retrieval modules**: `deep_rag_backend/retrieval/sql/`, `deep_rag_backend/retrieval/reranker/`, `deep_rag_backend/retrieval/stages/`, `deep_rag_backend/retrieval/sanitize.py`, `deep_rag_backend/retrieval/mmr.py`, `deep_rag_backend/retrieval/vector_utils.py`, `deep_rag_backend/retrieval/wait.py`
   - SQL query generation and sanitization
   - Maximal Marginal Relevance (MMR) diversity
   - Vector similarity calculations
   - Two-stage retrieval merge and deduplication
   - Chunk availability waiting logic
-- **Embedding modules**: `ingestion/embeddings/model.py`, `ingestion/embeddings/text.py`
+- **Embedding modules**: `deep_rag_backend/ingestion/embeddings/model.py`, `deep_rag_backend/ingestion/embeddings/text.py`
   - CLIP model initialization and validation
   - Text embedding generation with tokenization
   - Model lazy loading and caching
   - Error handling for invalid models and missing environment variables
-- **Ingestion modules**: `ingestion/db_ops/`, `ingestion/embeddings/`, `ingestion/pdf_extract.py`, `ingestion/chunking.py`
-- **LLM wrapper**: `inference/llm/wrapper.py`
+- **Ingestion modules**: `deep_rag_backend/ingestion/db_ops/`, `deep_rag_backend/ingestion/embeddings/`, `deep_rag_backend/ingestion/pdf_extract.py`, `deep_rag_backend/ingestion/chunking.py`
+- **LLM wrapper**: `deep_rag_backend/inference/llm/wrapper.py`
 - **Utility functions**: Helper functions, logger functions, wrapper functions
 
 ### Integration Tests
@@ -1042,7 +1108,7 @@ Integration tests cover:
 - **LLM Provider Integration**: Dynamic connectivity tests for OpenAI, Google Gemini, Ollama based on `.env` variables
   - Tests automatically skip providers that are not configured
   - Verifies API connectivity and response format
-- **Database Schema Verification**: Comprehensive tests for database initialization (`test_database_schema.py`)
+- **Database Schema Verification**: Comprehensive tests for database initialization (`deep_rag_backend/tests/integration/test_database_schema.py`)
   - Verifies all three required tables exist: `documents`, `chunks`, `thread_tracking`
   - Validates table structure (columns, data types, constraints)
   - Checks required indexes exist for efficient retrieval
@@ -1054,11 +1120,11 @@ Integration tests cover:
   - Verifies all flag combinations (doc_id, cross_doc, thread_id)
   - Checks logging and response formats
   - Can run automatically after `make up-and-test` if `AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true` is set in `.env`
-  - See [`scripts/ENDPOINT_TESTING_GUIDE.md`](scripts/ENDPOINT_TESTING_GUIDE.md) for details
+  - See [`deep_rag_backend/scripts/ENDPOINT_TESTING_GUIDE.md`](deep_rag_backend/scripts/ENDPOINT_TESTING_GUIDE.md) for details
 - **End-to-End Pipeline**: Full ingestion → retrieval → synthesis workflows
 - **Database Operations**: Real database interactions with test fixtures
 
-## LLM Provider Integration Tests
+### LLM Provider Integration Tests
 
 Integration tests dynamically check connectivity with LLM providers based on `.env` variables:
 - **OpenAI**: Tests if `OPENAI_API_KEY` is set
@@ -1067,22 +1133,51 @@ Integration tests dynamically check connectivity with LLM providers based on `.e
 
 Tests automatically skip providers that are not configured, so you don't need to manually execute per provider.
 
-## Startup Testing Automation
+### Test Configuration
 
-The Docker container includes an **entrypoint script** (`scripts/entrypoint.sh`) that can automatically run database schema tests on startup.
+Test configuration is defined in `deep_rag/pyproject.toml` (root) and `deep_rag_backend/pyproject.toml` (backend):
+```toml
+[tool.pytest.ini_options]
+testpaths = ["deep_rag_backend/tests"]  # Root pyproject.toml
+# OR
+testpaths = ["tests"]  # Backend pyproject.toml (when running from deep_rag_backend/)
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+```
 
-### How It Works
+**Note:** When running tests from the project root, pytest uses `deep_rag_backend/tests` as the test path. When running from `deep_rag_backend/` directory, pytest uses `tests` as the test path.
 
-1. **On Container Startup**: The entrypoint script checks if `RUN_TESTS_ON_STARTUP=true` is set in your `.env`
-2. **If Enabled**: Runs `tests/integration/test_database_schema.py` to verify:
-   - All required tables exist (`documents`, `chunks`, `thread_tracking`)
-   - Table structure is correct (columns, data types, constraints)
-   - Required indexes exist
-   - Multi-modal embedding support is configured
-3. **Then Starts API**: FastAPI server starts on port 8000
+### Installing Test Dependencies
 
-### Enable Startup Tests
+Install test dependencies:
+```bash
+# From project root (deep_rag/)
+pip install -e ".[dev]"
 
+# OR from backend directory (deep_rag_backend/)
+cd deep_rag_backend
+pip install -e ".[dev]"
+```
+
+This installs:
+- `pytest>=7.4.0` - Test framework
+- `pytest-cov>=4.0.0` - Coverage reporting
+
+</details>
+
+<details>
+<summary><strong>Startup Testing Automation</strong> - Click to expand</summary>
+
+The Docker container includes an **entrypoint script** (`deep_rag_backend/scripts/entrypoint.sh`) that can automatically run database schema tests on startup.
+
+**How It Works:**
+1. On container startup, the entrypoint script checks if `RUN_TESTS_ON_STARTUP=true` is set in your `.env`
+2. If enabled, runs `deep_rag_backend/tests/integration/test_database_schema.py` to verify all required tables exist and are properly configured
+3. Then starts the FastAPI server on port 8000
+
+**Enable Startup Tests:**
 Add to your `.env` file:
 ```bash
 RUN_TESTS_ON_STARTUP=true
@@ -1090,45 +1185,37 @@ RUN_TESTS_ON_STARTUP=true
 
 **Note:** Startup tests are **optional** and disabled by default. They add a few seconds to container startup time but provide early verification that the database schema is properly initialized.
 
-### Alternative: Manual Testing
-
-If you prefer to run tests manually:
+**Alternative: Manual Testing**
 ```bash
 # After make up
 make test DOCKER=true
 
 # Or use up-and-test
 make up-and-test  # Starts services, then runs all tests
-                 # Optionally runs endpoint tests if AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true
 ```
 
-### Endpoint Tests on Boot
-
+**Endpoint Tests on Boot:**
 The `make up-and-test` command can optionally run endpoint tests after completing unit and integration tests.
 
-**To enable endpoint tests on boot**, add to your `.env`:
+Add to your `.env`:
 ```bash
 AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true
 ```
 
-**What happens:**
-1. `make up-and-test` starts services
-2. Runs unit and integration tests
-3. If `AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true`, runs `make test-endpoints` (full suite: Make + REST API)
-4. Verifies all ingest, query, and infer endpoints work correctly
+This will run `make test-endpoints` (full suite: Make + REST API) after `make up-and-test` completes.
 
-**Note:** Endpoint tests on boot are **optional** and disabled by default. They add a few minutes to the startup process but provide comprehensive verification that all endpoints are working.
+See [`deep_rag_backend/scripts/entrypoint.sh`](deep_rag_backend/scripts/entrypoint.sh) for implementation details.
 
-See [`scripts/entrypoint.sh`](scripts/entrypoint.sh) for implementation details on startup tests.
+</details>
 
-## Endpoint Testing Automation
+<details>
+<summary><strong>Endpoint Testing Automation</strong> - Click to expand</summary>
 
 Deep RAG includes **automated endpoint testing scripts** that verify all ingest, query, and infer endpoints work correctly.
 
-### Quick Start
-
+**Quick Start:**
 ```bash
-# 1. Start services
+# 1. Start services (from project root)
 make up
 
 # 2. Run quick endpoint test (recommended first)
@@ -1138,10 +1225,7 @@ make test-endpoints-quick
 make test-endpoints
 ```
 
-### What Gets Tested
-
-The endpoint testing scripts automatically test:
-
+**What Gets Tested:**
 - ✅ **Ingest endpoints**: PDF, Image files
 - ✅ **Query endpoints** (Direct pipeline): All docs, specific doc_id, cross-doc
 - ✅ **Query-graph endpoints** (LangGraph pipeline): All docs, specific doc_id, cross-doc, thread_id
@@ -1149,33 +1233,31 @@ The endpoint testing scripts automatically test:
 - ✅ **Infer-graph endpoints** (LangGraph pipeline): PDF+Query, Image+Query, cross-doc, thread_id, query-only
 - ✅ **Health check endpoint**: Database connection and schema verification
 
-### Test Scripts
+**Test Scripts:**
+- `make test-endpoints-make` - Tests via Make commands
+- `make test-endpoints-rest` - Tests via REST API (curl)
+- `make test-endpoints-quick` - Quick test (one of each type)
 
-| Script | Purpose | Usage |
-|--------|---------|-------|
-| `test_endpoints_make.sh` | Tests via Make commands | `make test-endpoints-make` |
-| `test_endpoints_rest.sh` | Tests via REST API (curl) | `make test-endpoints-rest` |
-| `test_endpoints_quick.sh` | Quick test (one of each type) | `make test-endpoints-quick` |
-
-### Logging Verification
-
-After running endpoint tests, verify logging:
-
+**Logging Verification (from project root):**
 ```bash
 # Check API logs
 docker compose logs api
 
 # Check graph logs (LangGraph endpoints)
-ls -la inference/graph/logs/
+ls -la deep_rag_backend/inference/graph/logs/
+
+# Check test logs (test executions)
+ls -la deep_rag_backend/inference/graph/logs/test_logs/
 
 # Check thread_tracking table
 docker compose exec db psql -U $DB_USER -d $DB_NAME -c "SELECT thread_id, entry_point, pipeline_type, cross_doc, created_at FROM thread_tracking ORDER BY created_at DESC LIMIT 10;"
 ```
 
-### Documentation
+**Documentation:**
+- **Full Guide**: [`deep_rag_backend/scripts/ENDPOINT_TESTING_GUIDE.md`](deep_rag_backend/scripts/ENDPOINT_TESTING_GUIDE.md)
+- **Script Details**: [`deep_rag_backend/scripts/README_TEST_ENDPOINTS.md`](deep_rag_backend/scripts/README_TEST_ENDPOINTS.md)
 
-- **Full Guide**: [`scripts/ENDPOINT_TESTING_GUIDE.md`](scripts/ENDPOINT_TESTING_GUIDE.md)
-- **Script Details**: [`scripts/README_TEST_ENDPOINTS.md`](scripts/README_TEST_ENDPOINTS.md)
+</details>
 
 ## Test Configuration
 
@@ -1213,12 +1295,16 @@ Deep RAG includes comprehensive logging of all agentic reasoning steps for:
 
 ## Log Files
 
-Logs are automatically saved to `inference/graph/logs/` with timestamps:
+Logs are automatically saved to `deep_rag_backend/inference/graph/logs/` with timestamps:
 
 ```
-inference/graph/logs/
-├── agent_log_20250106_143052.csv  # Structured data for training
-└── agent_log_20250106_143052.txt  # Human-readable for presentations
+deep_rag_backend/inference/graph/logs/
+├── agent_log_20250106_143052.csv  # Production logs (structured data for training)
+└── agent_log_20250106_143052.txt  # Production logs (human-readable for presentations)
+
+deep_rag_backend/inference/graph/logs/test_logs/  # Test logs directory (ignored by git)
+├── agent_log_20250106_143052.csv  # Test logs (structured data for training)
+└── agent_log_20250106_143052.txt  # Test logs (human-readable for presentations)
 ```
 
 ## What Gets Logged
@@ -1259,7 +1345,10 @@ Export the LangGraph pipeline diagram as a PNG (requires Graphviz). If Graphviz 
 
 **Pipeline Flow:** `planner → retriever → compressor → critic → (refine_retrieve ↺ <= 3 limit) → synthesizer`
 
-### Install Graphviz
+<details>
+<summary><strong>Install Graphviz & Export Graph</strong> - Click to expand</summary>
+
+**Install Graphviz:**
 ```bash
 # Ubuntu/Debian
 sudo apt-get install graphviz
@@ -1268,78 +1357,294 @@ sudo apt-get install graphviz
 brew install graphviz
 ```
 
-### Export Graph
+**Export Graph:**
 ```bash
-# Via CLI
-python inference/cli.py graph --out deep_rag_graph.png
+# Via CLI (from deep_rag_backend directory)
+cd deep_rag_backend
+python -m inference.cli graph --out deep_rag_graph.png
 
-# Via Make
+# Via Make (from project root)
 make graph OUT=deep_rag_graph.png DOCKER=true
 
-# Via TOML
+# Via TOML (from any directory after installation)
 deep-rag graph --out deep_rag_graph.png
 
-# Via REST API
+# Via REST API (from any directory)
 curl "http://localhost:8000/graph?out=deep_rag_graph.png" -o deep_rag_graph.png
 ```
+
+</details>
 
 ---
 
 # 🗄️ Database Management
 
-## Restart Database
+<details>
+<summary><strong>Database Operations</strong> - Click to expand</summary>
+
 ```bash
+# Restart Database (from project root)
 docker compose restart db
-```
 
-## Rebuild Indexes
-```bash
+# Rebuild Indexes
 docker compose exec db psql -U $DB_USER -d $DB_NAME -c "REINDEX TABLE chunks;"
-```
 
-## Verify Schema
-```bash
+# Verify Schema
 docker compose exec db psql -U $DB_USER -d $DB_NAME -c "\dt"
 ```
+
+</details>
 
 ---
 
 # 🔧 Troubleshooting
 
-## Verify All Pages Were Ingested
+<details>
+<summary><strong>Verify All Pages Were Ingested</strong> - Click to expand</summary>
+
 ```bash
 # Use inspect command to check page distribution
-python inference/cli.py inspect --title "Document Title"
-# Or via REST API
+# From deep_rag_backend directory
+cd deep_rag_backend
+python -m inference.cli inspect --title "Document Title"
+
+# Or via REST API (from any directory)
 curl "http://localhost:8000/diagnostics/document?doc_title=Your%20Title"
 ```
 
-## Check Retrieval Logs
+</details>
+
+<details>
+<summary><strong>Check Retrieval Logs</strong> - Click to expand</summary>
+
 The system logs show which pages are represented in retrieved chunks:
 
-`cat inference/graph/logs/agent_log_*.txt`
+**Production logs (from project root):**
+```bash
+cat deep_rag_backend/inference/graph/logs/agent_log_*.txt
+```
+
+**Test logs (from project root):**
+```bash
+cat deep_rag_backend/inference/graph/logs/test_logs/agent_log_*.txt
+```
+
 - Look for "Pages represented in retrieved chunks: [1, 2, ...]"
 - Check text previews to see what content was actually retrieved
 
-## Common Issues
+</details>
+
+<details>
+<summary><strong>Common Issues</strong> - Click to expand</summary>
 
 **Issue**: Only page 1 content is being retrieved
-- **Solution**: Check if all pages were ingested using `inspect` command
-- **Solution**: Check retrieval logs for page distribution
+- **Solution**: Check if all pages were ingested using `inspect` command (from `deep_rag_backend` directory)
+- **Solution**: Check retrieval logs for page distribution (production logs in `deep_rag_backend/inference/graph/logs/`, test logs in `deep_rag_backend/inference/graph/logs/test_logs/`)
 - **Solution**: Verify chunking created chunks for all pages
 
 **Issue**: Graph visualization fails
 - **Solution**: Install Graphviz: `sudo apt-get install graphviz` or `brew install graphviz`
 - **Solution**: System will fallback to Mermaid format if Graphviz is missing
 
+**Issue**: Python version errors
+- **Solution**: Ensure Python 3.11+ is installed (required for Google Gemini SDK)
+- **Solution**: Check version: `python --version` (should be 3.11 or higher)
+
+**Issue**: Import errors
+- **Solution**: Ensure you're in the correct directory (`deep_rag_backend/` for CLI commands)
+- **Solution**: Verify dependencies are installed: `pip install -r requirements.txt`
+- **Solution**: Check `PYTHONPATH` is set correctly
+
+</details>
+
 ---
 
 # 📚 Additional Resources
 
-- See `md_guides/` directory for detailed guides:
-  - [`ENTRY_POINTS_AND_SCENARIOS.md`](md_guides/ENTRY_POINTS_AND_SCENARIOS.md) - Entry point scenarios and use cases
-  - [`THREAD_TRACKING_AND_AUDIT.md`](md_guides/THREAD_TRACKING_AND_AUDIT.md) - Thread tracking and audit logging
-  - [`LLM_SETUP.md`](md_guides/LLM_SETUP.md) - LLM provider configuration
-  - [`EMBEDDING_OPTIONS.md`](md_guides/EMBEDDING_OPTIONS.md) - Embedding model options
-  - [`SETUP_GUIDE.md`](md_guides/SETUP_GUIDE.md) - Detailed setup instructions
-  - [`RESET_DB.md`](md_guides/RESET_DB.md) - Database reset procedures
+- See `md_guides/` directory for detailed guides (from project root):
+  - [`md_guides/ENTRY_POINTS_AND_SCENARIOS.md`](md_guides/ENTRY_POINTS_AND_SCENARIOS.md) - Entry point scenarios and use cases
+  - [`md_guides/THREAD_TRACKING_AND_AUDIT.md`](md_guides/THREAD_TRACKING_AND_AUDIT.md) - Thread tracking and audit logging
+  - [`md_guides/LLM_SETUP.md`](md_guides/LLM_SETUP.md) - LLM provider configuration
+  - [`md_guides/EMBEDDING_OPTIONS.md`](md_guides/EMBEDDING_OPTIONS.md) - Embedding model options
+  - [`md_guides/ENVIRONMENT_SETUP.md`](md_guides/ENVIRONMENT_SETUP.md) - Environment configuration
+  - [`md_guides/QUICKSTART.md`](md_guides/QUICKSTART.md) - Quick start guide
+  - [`md_guides/RESET_DB.md`](md_guides/RESET_DB.md) - Database reset procedures
+  - [`deep_rag_backend/scripts/ENDPOINT_TESTING_GUIDE.md`](deep_rag_backend/scripts/ENDPOINT_TESTING_GUIDE.md) - Endpoint testing guide
+
+# 📂 Directory Structure
+
+```bash
+deep_rag/                          # Project root
+├── deep_rag_backend/              # Backend API and services
+│   ├── inference/                 # Inference pipeline and API
+│   ├── cli.py                    # Typer CLI interface matching FastAPI service routes
+│   ├── service.py                # FastAPI REST API entrypoint with all endpoints
+│   ├── agents/                   # Direct pipeline: modularized agent components
+│   │   ├── __init__.py
+│   │   ├── pipeline.py           # Main pipeline orchestrator
+│   │   ├── state.py              # State TypedDict definition
+│   │   ├── constants.py          # Pipeline constants (MAX_ITERS, THRESH)
+│   │   ├── planner.py            # Planning agent
+│   │   ├── retriever.py          # Retrieval agent
+│   │   ├── compressor.py         # Compression agent
+│   │   ├── critic.py             # Critic agent
+│   │   └── synthesizer.py        # Synthesis agent
+│   ├── llm/                      # LLM provider interface (modularized)
+│   │   ├── __init__.py
+│   │   ├── wrapper.py            # Unified LLM interface
+│   │   ├── config.py             # LLM configuration and env vars
+│   │   └── providers/            # LLM provider implementations
+│   │       ├── __init__.py
+│   │       └── gemini.py         # Google Gemini provider
+│   ├── graph/                    # LangGraph pipeline
+│   │   ├── graph.py              # Legacy wrapper (backward compatibility)
+│   │   ├── graph_wrapper.py      # Wrapper for LangGraph pipeline with logging
+│   │   ├── graph_viz.py          # Graph visualization export (PNG/Mermaid)
+│   │   ├── state.py              # GraphState TypedDict definition
+│   │   ├── constants.py          # Graph constants (MAX_ITERS, THRESH)
+│   │   ├── builder.py            # Graph builder and compiler
+│   │   ├── routing.py            # Conditional routing logic
+│   │   ├── agent_logger.py       # Agent logging for SFT training
+│   │   └── nodes/                # Individual graph nodes
+│   │       ├── __init__.py
+│   │       ├── planner.py
+│   │       ├── retriever.py
+│   │       ├── compressor.py
+│   │       ├── critic.py
+│   │       ├── refine_retrieve.py
+│   │       └── synthesizer.py
+│   ├── commands/                 # CLI command modules
+│   │   ├── __init__.py
+│   │   ├── ingest.py
+│   │   ├── query.py
+│   │   ├── query_graph.py
+│   │   ├── infer.py
+│   │   ├── infer_graph.py
+│   │   ├── inspect.py
+│   │   ├── graph.py
+│   │   ├── health.py
+│   │   └── test.py
+│   ├── routes/                   # FastAPI route modules
+│   │   ├── __init__.py
+│   │   ├── ingest.py
+│   │   ├── ask.py
+│   │   ├── ask_graph.py
+│   │   ├── infer.py
+│   │   ├── infer_graph.py
+│   │   ├── diagnostics.py
+│   │   ├── graph_export.py
+│   │   ├── health.py
+│   │   └── models.py
+│   └── samples/                  # Sample PDFs + Images for testing
+│   ├── ingestion/                 # Document ingestion pipeline
+│   ├── ingest.py                 # Main PDF ingestion orchestrator
+│   ├── ingest_text.py            # Plain text file ingestion
+│   ├── ingest_image.py           # Image file ingestion (PNG, JPEG) with OCR
+│   ├── ingest_unified.py         # Unified ingestion interface
+│   ├── pdf_extract.py            # PDF text extraction with OCR fallback
+│   ├── chunking.py               # Semantic chunking logic
+│   ├── title_extract.py          # Document title extraction
+│   ├── db_ops/                   # Database operations (modularized)
+│   │   ├── __init__.py
+│   │   ├── document.py           # Document upsert operations
+│   │   └── chunks.py             # Chunk upsert operations
+│   └── embeddings/               # Multi-modal embedding system (modularized)
+│       ├── __init__.py
+│       ├── model.py              # CLIP model loading and configuration
+│       ├── text.py               # Text embedding generation
+│       ├── image.py              # Image embedding generation
+│       ├── multimodal.py         # Multi-modal embedding utilities
+│       ├── batch.py              # Batch embedding operations
+│       └── utils.py              # Embedding utilities
+│   ├── retrieval/                 # Hybrid retrieval system
+│   ├── retrieval.py              # Main hybrid retrieval orchestrator
+│   ├── sanitize.py               # Query sanitization for SQL
+│   ├── mmr.py                    # Maximal Marginal Relevance (MMR) diversity
+│   ├── vector_utils.py           # Vector utility functions
+│   ├── wait.py                   # Wait for chunks to be available
+│   ├── db_utils.py               # Centralized database connection utilities
+│   ├── sql/                      # SQL query generation (modularized)
+│   │   ├── __init__.py
+│   │   ├── hybrid.py             # Hybrid SQL query with doc_id filter
+│   │   └── exclusion.py          # Hybrid SQL query with doc_id exclusion
+│   ├── reranker/                 # Cross-encoder reranking (modularized)
+│   │   ├── __init__.py
+│   │   ├── model.py              # Reranker model loading
+│   │   └── rerank.py             # Reranking logic
+│   ├── stages/                   # Two-stage retrieval (modularized)
+│   │   ├── __init__.py
+│   │   ├── stage_one.py          # Stage 1: Primary retrieval
+│   │   ├── stage_two.py          # Stage 2: Cross-document retrieval
+│   │   └── merge.py              # Merge and deduplicate results
+│   ├── diagnostics/              # Diagnostic tools (modularized)
+│   │   ├── __init__.py
+│   │   ├── inspect.py            # Document inspection
+│   │   └── report.py             # Inspection report generation
+│   ├── thread_tracking/          # Thread tracking and audit logging (modularized)
+│   │   ├── __init__.py
+│   │   ├── log.py                # Log thread interactions
+│   │   ├── get.py                # Retrieve thread interactions
+│   │   └── update.py             # Update thread interactions
+│   └── diagnostics.py            # Legacy wrapper (backward compatibility)
+│   ├── tests/                     # Comprehensive test suite
+│   ├── __init__.py
+│   ├── conftest.py               # Pytest configuration and fixtures
+│   ├── unit/                     # Unit tests
+│   │   ├── __init__.py
+│   │   ├── test_retrieval_sql.py
+│   │   ├── test_retrieval_sanitize.py
+│   │   ├── test_retrieval_mmr_basic.py
+│   │   ├── test_retrieval_mmr_diversity.py
+│   │   ├── test_retrieval_vector_utils.py
+│   │   ├── test_retrieval_wait.py
+│   │   ├── test_retrieval_merge.py
+│   │   ├── test_llm_wrapper.py
+│   │   ├── test_llm_providers_gemini.py
+│   │   └── test_embeddings_text.py  # Embedding model and text embedding tests
+│   └── integration/              # Integration tests
+│       ├── __init__.py
+│       ├── test_llm_providers.py
+│       ├── test_llm_providers_gemini.py
+│       ├── test_llm_providers_openai.py
+│       ├── test_llm_providers_ollama.py
+│       └── test_database_schema.py  # Database schema verification tests
+│   ├── scripts/                     # Docker and deployment scripts
+│   │   ├── entrypoint.sh            # Docker container entrypoint (runs tests on startup if enabled)
+│   │   ├── test_endpoints_make.sh   # Endpoint testing via Make commands
+│   │   ├── test_endpoints_rest.sh   # Endpoint testing via REST API (curl)
+│   │   ├── test_endpoints_quick.sh  # Quick endpoint test (one of each type)
+│   │   ├── ENDPOINT_TESTING_GUIDE.md # Comprehensive endpoint testing guide
+│   │   └── README_TEST_ENDPOINTS.md  # Endpoint testing script documentation
+│   ├── Dockerfile                    # Backend Docker image definition
+│   ├── docker-compose.yml            # Backend standalone Docker Compose
+│   ├── requirements.txt              # Python dependencies
+│   ├── pyproject.toml                # Project metadata, dependencies, and pytest config
+│   └── makefile                      # Convenience make commands for common tasks
+│
+├── deep_rag_frontend/            # Frontend Streamlit application
+│   ├── app.py                       # Main Streamlit application
+│   ├── api_client.py                 # API client wrapper
+│   ├── requirements.txt              # Python dependencies
+│   ├── Dockerfile                    # Frontend Docker image definition
+│   ├── docker-compose.yml            # Frontend standalone Docker Compose
+│   └── README.md                      # Frontend documentation
+│
+├── vector_db/                       # Database schema and migrations
+│   ├── schema_multimodal.sql        # Multi-modal schema for CLIP embeddings (768 dims)
+│   ├── migration_add_multimodal.sql  # Migration for multi-modal support
+│   ├── migration_add_thread_tracking.sql  # Migration for thread tracking table
+│   ├── migration_upgrade_to_768.sql # Migration for 768-dimensional embeddings
+│   ├── ingestion_schema.sql         # Legacy schema (for reference)
+│   └── docker-compose.yml           # Stand-alone DB service (pgvector)
+├── .gitignore                       # Root gitignore
+├── docker-compose.yml               # Full stack orchestration (DB + Backend + Frontend)
+├── md_guides/                    # Documentation guides
+│   ├── EMBEDDING_OPTIONS.md      # Embedding model options and recommendations
+│   ├── LLM_SETUP.md              # LLM provider setup guide
+│   ├── PROJECT_ASSESSMENT.md     # Project assessment requirements
+│   ├── RESET_DB.md               # Database reset instructions
+│   ├── SETUP_GUIDE.md            # Detailed setup guide
+│   ├── ENTRY_POINTS_AND_SCENARIOS.md  # Entry point scenarios and use cases
+│   └── THREAD_TRACKING_AND_AUDIT.md   # Thread tracking and audit logging
+└── README.md                         # This file
+```

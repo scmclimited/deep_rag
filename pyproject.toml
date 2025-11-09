@@ -1,16 +1,59 @@
 [project]
 name = "deep-rag"
 version = "0.1.0"
+description = "Deep RAG - Agentic Retrieval-Augmented Generation Pipeline"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "typer>=0.12.3",
+    # Core AI & Embedding Models
+    "sentence-transformers==3.0.1",
+    "open-clip-torch==2.28.0",
+    "numpy>=1.26.0",
+    "transformers[torch]==4.42.0",
+    "torch>=2.0.0",
+    # Database Layer
+    "psycopg2-binary>=2.9.9",
+    # PDF & OCR Ingestion
+    "PyMuPDF==1.24.2",
+    "pdf2image==1.17.0",
+    "pytesseract==0.3.10",
+    "Pillow>=10.0.0",
+    # Preprocessing & Utilities
+    "regex>=2023.12.25",
+    "python-dotenv==1.0.1",
+    "pydantic>=2.7.0",
+    # API/Web Framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]==0.27.1",
+    "python-multipart>=0.0.20",
+    # Reranking / Retrieval
+    "scikit-learn>=1.4.2",
+    # Agentic Orchestration
+    "langgraph==0.2.26",
+    "langchain-community>=0.2.10",
+    # LLM Provider
+    "google-genai>=1.0.0",
+    # CLI Interface
+    "typer>=0.12.3",
+    # Graph Visualization
+    "graphviz>=0.20.3",
+    # Testing
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
 ]
 
 [project.scripts]
-deep-rag = "inference.cli:app"
+deep-rag = "cli:app"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["deep_rag_backend/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -18,6 +61,7 @@ addopts = "-v --tb=short"
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=7.0.0",
-  "pytest-cov>=4.0.0",
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
 ]
+

@@ -1,0 +1,46 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: deep_rag_frontend
+    env_file:
+      - .env
+    environment:
+      # API connection - defaults to backend service if in same network
+      # Override with API_BASE_URL=http://host.docker.internal:8000 for local backend
+      # Or use http://api:8000 if connecting to backend in same Docker network
+      API_BASE_URL: ${API_BASE_URL:-http://host.docker.internal:8000}
+      # Streamlit configuration
+      STREAMLIT_SERVER_PORT: 8501
+      STREAMLIT_SERVER_ADDRESS: 0.0.0.0
+      STREAMLIT_SERVER_HEADLESS: true
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: false
+    ports:
+      - "${FRONTEND_PORT:-8501}:8501"
+    volumes:
+      # Optional: Mount for development (hot reload)
+      # Uncomment to enable hot reload during development:
+      # - .:/app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # Optional: Connect to backend network if backend is running separately
+    # Uncomment if backend is in a different docker-compose:
+    # networks:
+    #   - deep_rag_network
+    # Or use external network:
+    # networks:
+    #   default:
+    #     external:
+    #       name: deep_rag_network
+
+# Optional: Create network for connecting to backend
+# Uncomment if you want to connect to backend in same network:
+# networks:
+#   deep_rag_network:
+#     external: true
+

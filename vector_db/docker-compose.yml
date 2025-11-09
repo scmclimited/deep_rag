@@ -3,7 +3,7 @@ services:
     image: pgvector/pgvector:pg16
     container_name: deep_rag_pgvector
     env_file:
-      - ../.env
+      - .env
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASS}

@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: deep_rag_api
+    env_file:
+      - ../../.env
+    environment:
+      # Database connection - use db service if in same network, or localhost for standalone
+      DB_HOST: ${DB_HOST:-localhost}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      DB_NAME: ${DB_NAME}
+      # Optional: Set RUN_TESTS_ON_STARTUP=true to run database schema tests on startup
+      # RUN_TESTS_ON_STARTUP: ${RUN_TESTS_ON_STARTUP:-false}
+    ports:
+      - "8000:8000"
+    volumes:
+      # Map logs directory from container to local filesystem (production logs only)
+      # Test logs are excluded - they live in inference/graph/logs/test/ and are not mounted
+      - ./inference/graph/logs:/app/inference/graph/logs
+      # Artifacts are created in container's /app/artifacts (not mounted)
+      # Use docker cp to extract if needed: docker cp deep_rag_api:/app/artifacts ./artifacts
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Optional: Connect to external network if database is in another compose file
+    # networks:
+    #   - deep_rag_network
+
+# Optional: Use external network for database connection
+# networks:
+#   deep_rag_network:
+#     external: true
+

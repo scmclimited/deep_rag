@@ -1,1 +1,0 @@
-timestamp,session_id,node,action,question,plan,query,num_chunks_retrieved,pages_retrieved,confidence,iterations,refinements,answer,metadata

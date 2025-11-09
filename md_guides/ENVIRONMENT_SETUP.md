@@ -88,7 +88,9 @@ PROJECT_ROOT=/app
 # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 LOG_LEVEL=INFO
 
-# Agent log directory
+# Agent log directory (relative to backend root)
+# Production logs: inference/graph/logs/
+# Test logs: inference/graph/logs/test_logs/
 AGENT_LOG_DIR=inference/graph/logs
 
 # Run database schema tests on API container startup (true/false)

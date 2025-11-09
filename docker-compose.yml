@@ -23,6 +23,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - deep_rag_network
 
 # Uncomment to persist database data across container restarts:
 # volumes:
@@ -30,7 +32,7 @@ services:
 
   api:
     build:
-      context: .
+      context: ./deep_rag_backend
       dockerfile: Dockerfile
     container_name: deep_rag_api
     depends_on:
@@ -41,7 +43,7 @@ services:
     environment:
       # If .env is set for local runs (DB_HOST=localhost),
       # change it to DB_HOST=db when running via Compose.
-      DB_HOST: ${DB_HOST}
+      DB_HOST: db
       DB_PORT: ${DB_PORT}
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
@@ -51,14 +53,51 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Map logs directory from container to local filesystem
+      # Map logs directory from container to local filesystem (production logs only)
       # This ensures logs written to /app/inference/graph/logs/ inside the container
-      # are immediately accessible at ./inference/graph/logs/ on your local machine
-      - ./inference/graph/logs:/app/inference/graph/logs
-      - ./artifacts:/app/artifacts
+      # are immediately accessible at ./deep_rag_backend/inference/graph/logs/ on your local machine
+      # Test logs (inference/graph/logs/test/) are excluded - they are not mounted and not copied to image
+      - ./deep_rag_backend/inference/graph/logs:/app/inference/graph/logs
+      # Artifacts are now created in container's /app/artifacts (not mounted)
+      # Use docker cp to extract if needed: docker cp deep_rag_api:/app/artifacts ./artifacts
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
+    networks:
+      - deep_rag_network
+
+  frontend:
+    build:
+      context: ./deep_rag_frontend
+      dockerfile: Dockerfile
+    container_name: deep_rag_frontend
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # API connection - connect to backend API in same network
+      API_BASE_URL: http://api:8000
+      # Streamlit configuration
+      STREAMLIT_SERVER_PORT: 8501
+      STREAMLIT_SERVER_ADDRESS: 0.0.0.0
+      STREAMLIT_SERVER_HEADLESS: true
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: false
+    ports:
+      - "${FRONTEND_PORT:-8501}:8501"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - deep_rag_network
+
+networks:
+  deep_rag_network:
+    driver: bridge

@@ -39,6 +39,9 @@ deep_rag/                          # Project root
 ├── .env.example                   # Root environment template (all services)
 ├── .gitignore                     # Root gitignore
 ├── md_guides/                     # Markdown guides
+├── makefile                       # Make scripts
+├── pyproject.toml                 # TOML Scripts
+├── cli.py                         # Command-line Python scripts
 └── README.md                      # This file
 ```
 
@@ -1255,7 +1258,6 @@ docker compose exec db psql -U $DB_USER -d $DB_NAME -c "SELECT thread_id, entry_
 
 **Documentation:**
 - **Full Guide**: [`deep_rag_backend/scripts/ENDPOINT_TESTING_GUIDE.md`](deep_rag_backend/scripts/ENDPOINT_TESTING_GUIDE.md)
-- **Script Details**: [`deep_rag_backend/scripts/README_TEST_ENDPOINTS.md`](deep_rag_backend/scripts/README_TEST_ENDPOINTS.md)
 
 </details>
 
@@ -1474,177 +1476,200 @@ cat deep_rag_backend/inference/graph/logs/test_logs/agent_log_*.txt
 # 📂 Directory Structure
 
 ```bash
-deep_rag/                          # Project root
-├── deep_rag_backend/              # Backend API and services
-│   ├── inference/                 # Inference pipeline and API
-│   ├── cli.py                    # Typer CLI interface matching FastAPI service routes
-│   ├── service.py                # FastAPI REST API entrypoint with all endpoints
-│   ├── agents/                   # Direct pipeline: modularized agent components
-│   │   ├── __init__.py
-│   │   ├── pipeline.py           # Main pipeline orchestrator
-│   │   ├── state.py              # State TypedDict definition
-│   │   ├── constants.py          # Pipeline constants (MAX_ITERS, THRESH)
-│   │   ├── planner.py            # Planning agent
-│   │   ├── retriever.py          # Retrieval agent
-│   │   ├── compressor.py         # Compression agent
-│   │   ├── critic.py             # Critic agent
-│   │   └── synthesizer.py        # Synthesis agent
-│   ├── llm/                      # LLM provider interface (modularized)
-│   │   ├── __init__.py
-│   │   ├── wrapper.py            # Unified LLM interface
-│   │   ├── config.py             # LLM configuration and env vars
-│   │   └── providers/            # LLM provider implementations
-│   │       ├── __init__.py
-│   │       └── gemini.py         # Google Gemini provider
-│   ├── graph/                    # LangGraph pipeline
-│   │   ├── graph.py              # Legacy wrapper (backward compatibility)
-│   │   ├── graph_wrapper.py      # Wrapper for LangGraph pipeline with logging
-│   │   ├── graph_viz.py          # Graph visualization export (PNG/Mermaid)
-│   │   ├── state.py              # GraphState TypedDict definition
-│   │   ├── constants.py          # Graph constants (MAX_ITERS, THRESH)
-│   │   ├── builder.py            # Graph builder and compiler
-│   │   ├── routing.py            # Conditional routing logic
-│   │   ├── agent_logger.py       # Agent logging for SFT training
-│   │   └── nodes/                # Individual graph nodes
-│   │       ├── __init__.py
-│   │       ├── planner.py
-│   │       ├── retriever.py
-│   │       ├── compressor.py
-│   │       ├── critic.py
-│   │       ├── refine_retrieve.py
-│   │       └── synthesizer.py
-│   ├── commands/                 # CLI command modules
-│   │   ├── __init__.py
-│   │   ├── ingest.py
-│   │   ├── query.py
-│   │   ├── query_graph.py
-│   │   ├── infer.py
-│   │   ├── infer_graph.py
-│   │   ├── inspect.py
-│   │   ├── graph.py
-│   │   ├── health.py
-│   │   └── test.py
-│   ├── routes/                   # FastAPI route modules
-│   │   ├── __init__.py
-│   │   ├── ingest.py
-│   │   ├── ask.py
-│   │   ├── ask_graph.py
-│   │   ├── infer.py
-│   │   ├── infer_graph.py
-│   │   ├── diagnostics.py
-│   │   ├── graph_export.py
-│   │   ├── health.py
-│   │   └── models.py
-│   └── samples/                  # Sample PDFs + Images for testing
-│   ├── ingestion/                 # Document ingestion pipeline
-│   ├── ingest.py                 # Main PDF ingestion orchestrator
-│   ├── ingest_text.py            # Plain text file ingestion
-│   ├── ingest_image.py           # Image file ingestion (PNG, JPEG) with OCR
-│   ├── ingest_unified.py         # Unified ingestion interface
-│   ├── pdf_extract.py            # PDF text extraction with OCR fallback
-│   ├── chunking.py               # Semantic chunking logic
-│   ├── title_extract.py          # Document title extraction
-│   ├── db_ops/                   # Database operations (modularized)
-│   │   ├── __init__.py
-│   │   ├── document.py           # Document upsert operations
-│   │   └── chunks.py             # Chunk upsert operations
-│   └── embeddings/               # Multi-modal embedding system (modularized)
-│       ├── __init__.py
-│       ├── model.py              # CLIP model loading and configuration
-│       ├── text.py               # Text embedding generation
-│       ├── image.py              # Image embedding generation
-│       ├── multimodal.py         # Multi-modal embedding utilities
-│       ├── batch.py              # Batch embedding operations
-│       └── utils.py              # Embedding utilities
-│   ├── retrieval/                 # Hybrid retrieval system
-│   ├── retrieval.py              # Main hybrid retrieval orchestrator
-│   ├── sanitize.py               # Query sanitization for SQL
-│   ├── mmr.py                    # Maximal Marginal Relevance (MMR) diversity
-│   ├── vector_utils.py           # Vector utility functions
-│   ├── wait.py                   # Wait for chunks to be available
-│   ├── db_utils.py               # Centralized database connection utilities
-│   ├── sql/                      # SQL query generation (modularized)
-│   │   ├── __init__.py
-│   │   ├── hybrid.py             # Hybrid SQL query with doc_id filter
-│   │   └── exclusion.py          # Hybrid SQL query with doc_id exclusion
-│   ├── reranker/                 # Cross-encoder reranking (modularized)
-│   │   ├── __init__.py
-│   │   ├── model.py              # Reranker model loading
-│   │   └── rerank.py             # Reranking logic
-│   ├── stages/                   # Two-stage retrieval (modularized)
-│   │   ├── __init__.py
-│   │   ├── stage_one.py          # Stage 1: Primary retrieval
-│   │   ├── stage_two.py          # Stage 2: Cross-document retrieval
-│   │   └── merge.py              # Merge and deduplicate results
-│   ├── diagnostics/              # Diagnostic tools (modularized)
-│   │   ├── __init__.py
-│   │   ├── inspect.py            # Document inspection
-│   │   └── report.py             # Inspection report generation
-│   ├── thread_tracking/          # Thread tracking and audit logging (modularized)
-│   │   ├── __init__.py
-│   │   ├── log.py                # Log thread interactions
-│   │   ├── get.py                # Retrieve thread interactions
-│   │   └── update.py             # Update thread interactions
-│   └── diagnostics.py            # Legacy wrapper (backward compatibility)
-│   ├── tests/                     # Comprehensive test suite
-│   ├── __init__.py
-│   ├── conftest.py               # Pytest configuration and fixtures
-│   ├── unit/                     # Unit tests
-│   │   ├── __init__.py
-│   │   ├── test_retrieval_sql.py
-│   │   ├── test_retrieval_sanitize.py
-│   │   ├── test_retrieval_mmr_basic.py
-│   │   ├── test_retrieval_mmr_diversity.py
-│   │   ├── test_retrieval_vector_utils.py
-│   │   ├── test_retrieval_wait.py
-│   │   ├── test_retrieval_merge.py
-│   │   ├── test_llm_wrapper.py
-│   │   ├── test_llm_providers_gemini.py
-│   │   └── test_embeddings_text.py  # Embedding model and text embedding tests
-│   └── integration/              # Integration tests
-│       ├── __init__.py
-│       ├── test_llm_providers.py
-│       ├── test_llm_providers_gemini.py
-│       ├── test_llm_providers_openai.py
-│       ├── test_llm_providers_ollama.py
-│       └── test_database_schema.py  # Database schema verification tests
-│   ├── scripts/                     # Docker and deployment scripts
-│   │   ├── entrypoint.sh            # Docker container entrypoint (runs tests on startup if enabled)
-│   │   ├── test_endpoints_make.sh   # Endpoint testing via Make commands
-│   │   ├── test_endpoints_rest.sh   # Endpoint testing via REST API (curl)
-│   │   ├── test_endpoints_quick.sh  # Quick endpoint test (one of each type)
-│   │   ├── ENDPOINT_TESTING_GUIDE.md # Comprehensive endpoint testing guide
-│   │   └── README_TEST_ENDPOINTS.md  # Endpoint testing script documentation
-│   ├── Dockerfile                    # Backend Docker image definition
-│   ├── docker-compose.yml            # Backend standalone Docker Compose
-│   ├── requirements.txt              # Python dependencies
-│   ├── pyproject.toml                # Project metadata, dependencies, and pytest config
-│   └── makefile                      # Convenience make commands for common tasks
-│
-├── deep_rag_frontend/            # Frontend Streamlit application
-│   ├── app.py                       # Main Streamlit application
-│   ├── api_client.py                 # API client wrapper
-│   ├── requirements.txt              # Python dependencies
-│   ├── Dockerfile                    # Frontend Docker image definition
-│   ├── docker-compose.yml            # Frontend standalone Docker Compose
-│   └── README.md                      # Frontend documentation
-│
-├── vector_db/                       # Database schema and migrations
-│   ├── schema_multimodal.sql        # Multi-modal schema for CLIP embeddings (768 dims)
-│   ├── migration_add_multimodal.sql  # Migration for multi-modal support
-│   ├── migration_add_thread_tracking.sql  # Migration for thread tracking table
-│   ├── migration_upgrade_to_768.sql # Migration for 768-dimensional embeddings
-│   ├── ingestion_schema.sql         # Legacy schema (for reference)
-│   └── docker-compose.yml           # Stand-alone DB service (pgvector)
-├── .gitignore                       # Root gitignore
-├── docker-compose.yml               # Full stack orchestration (DB + Backend + Frontend)
-├── md_guides/                    # Documentation guides
-│   ├── EMBEDDING_OPTIONS.md      # Embedding model options and recommendations
-│   ├── LLM_SETUP.md              # LLM provider setup guide
-│   ├── PROJECT_ASSESSMENT.md     # Project assessment requirements
-│   ├── RESET_DB.md               # Database reset instructions
-│   ├── SETUP_GUIDE.md            # Detailed setup guide
-│   ├── ENTRY_POINTS_AND_SCENARIOS.md  # Entry point scenarios and use cases
-│   └── THREAD_TRACKING_AND_AUDIT.md   # Thread tracking and audit logging
-└── README.md                         # This file
+deep_rag_backend/
+    ├── inference/
+        ├── agents/
+            ├── __init__.py
+            ├── compressor.py
+            ├── constants.py
+            ├── critic.py
+            ├── pipeline.py
+            ├── planner.py
+            ├── retriever.py
+            ├── state.py
+            └── synthesizer.py
+        ├── commands/
+            ├── __init__.py
+            ├── graph.py
+            ├── health.py
+            ├── infer_graph.py
+            ├── infer.py
+            ├── ingest.py
+            ├── inspect.py
+            ├── query_graph.py
+            ├── query.py
+            └── test.py
+        ├── graph/
+            ├── nodes/
+                ├── __init__.py
+                ├── compressor.py
+                ├── critic.py
+                ├── planner.py
+                ├── refine_retrieve.py
+                ├── retriever.py
+                └── synthesizer.py
+            ├── agent_logger.py
+            ├── builder.py
+            ├── constants.py
+            ├── graph_viz.py
+            ├── graph_wrapper.py
+            ├── graph.py
+            ├── routing.py
+            └── state.py
+        ├── llm/
+            ├── providers/
+                ├── __init__.py
+                └── gemini.py
+            ├── __init__.py
+            ├── config.py
+            └── wrapper.py
+        ├── routes/
+            ├── __init__.py
+            ├── ask_graph.py
+            ├── ask.py
+            ├── diagnostics.py
+            ├── graph_export.py
+            ├── health.py
+            ├── infer_graph.py
+            ├── infer.py
+            ├── ingest.py
+            └── models.py
+        ├── samples/
+            └── NYMBL - AI Engineer - Omar.pdf
+        ├── cli.py
+        └── service.py
+    ├── ingestion/
+        ├── db_ops/
+            ├── __init__.py
+            ├── chunks.py
+            └── document.py
+        ├── embeddings/
+            ├── __init__.py
+            ├── batch.py
+            ├── image.py
+            ├── model.py
+            ├── multimodal.py
+            ├── text.py
+            └── utils.py
+        ├── chunking.py
+        ├── ingest_image.py
+        ├── ingest_text.py
+        ├── ingest_unified.py
+        ├── ingest.py
+        ├── pdf_extract.py
+        └── title_extract.py
+    ├── retrieval/
+        ├── diagnostics/
+            ├── diagnostic_reports/
+                ├── doc_id=57e9d56c-3491-40b7-9b0b-0147650f17f5.json
+                └── ocr_doc_id=06e18fc0-f6e6-4b66-9ddb-c57806449554.json
+            ├── __init__.py
+            ├── inspect.py
+            └── report.py
+        ├── reranker/
+            ├── __init__.py
+            ├── model.py
+            └── rerank.py
+        ├── sql/
+            ├── __init__.py
+            ├── exclusion.py
+            └── hybrid.py
+        ├── stages/
+            ├── __init__.py
+            ├── merge.py
+            ├── stage_one.py
+            └── stage_two.py
+        ├── thread_tracking/
+            ├── __init__.py
+            ├── get.py
+            ├── log.py
+            └── update.py
+        ├── __init__.py
+        ├── db_utils.py
+        ├── diagnostics.py
+        ├── mmr.py
+        ├── retrieval.py
+        ├── sanitize.py
+        ├── vector_utils.py
+        └── wait.py
+    ├── scripts/
+        ├── ENDPOINT_TESTING_GUIDE.md
+        ├── entrypoint.sh
+        ├── test_endpoints_make.sh
+        ├── test_endpoints_quick.sh
+        └── test_endpoints_rest.sh
+    ├── tests/
+        ├── integration/
+            ├── __init__.py
+            ├── test_database_schema.py
+            ├── test_llm_providers_gemini.py
+            ├── test_llm_providers_ollama.py
+            ├── test_llm_providers_openai.py
+            ├── test_llm_providers.py
+            └── test_thread_tracking.py
+        ├── unit/
+            ├── __init__.py
+            ├── test_agents_compressor.py
+            ├── test_agents_critic.py
+            ├── test_agents_planner.py
+            ├── test_agents_retriever.py
+            ├── test_agents_synthesizer.py
+            ├── test_embeddings_batch.py
+            ├── test_embeddings_image.py
+            ├── test_embeddings_multimodal.py
+            ├── test_embeddings_text.py
+            ├── test_embeddings_utils.py
+            ├── test_llm_providers_gemini.py
+            ├── test_llm_wrapper.py
+            ├── test_retrieval_merge.py
+            ├── test_retrieval_mmr_basic.py
+            ├── test_retrieval_mmr_diversity.py
+            ├── test_retrieval_rerank.py
+            ├── test_retrieval_sanitize.py
+            ├── test_retrieval_sql.py
+            ├── test_retrieval_stages.py
+            ├── test_retrieval_vector_utils.py
+            └── test_retrieval_wait.py
+        ├── __init__.py
+        └── conftest.py
+    ├── .env.example
+    ├── .gitignore
+    ├── docker-compose.yml
+    ├── Dockerfile
+    ├── makefile
+    ├── pyproject.toml
+    └── requirements.txt
+deep_rag_frontend/
+    ├── .env.example
+    ├── api_client.py
+    ├── app.py
+    ├── docker-compose.yml
+    ├── Dockerfile
+    ├── README.md
+    ├── requirements.txt
+    └── SUGGESTED_ROUTES.md
+md_guides/
+    ├── EMBEDDING_OPTIONS.md
+    ├── ENTRY_POINTS_AND_SCENARIOS.md
+    ├── ENVIRONMENT_SETUP.md
+    ├── LLM_SETUP.md
+    ├── QUICKSTART.md
+    ├── RESET_DB.md
+    └── THREAD_TRACKING_AND_AUDIT.md
+vector_db/
+    ├── .env.example
+    ├── docker-compose.yml
+    ├── ingestion_schema.sql
+    ├── migration_add_multimodal.sql
+    ├── migration_add_thread_tracking.sql
+    ├── migration_upgrade_to_768.sql
+    └── schema_multimodal.sql
+.env.example
+.gitignore
+cli.py
+docker-compose.yml
+LICENSE
+makefile
+pyproject.toml
+README.md
 ```

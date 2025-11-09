@@ -192,66 +192,6 @@ curl http://localhost:8000/health
 
 </details>
 
-## Environment Setup
-
-<details>
-<summary><strong>Root `.env` File (Full Stack)</strong> - Click to expand</summary>
-
-Create `.env` file in project root (`deep_rag/`):
-
-```bash
-# Copy example file
-cp .env.example .env
-
-# Edit .env and fill in required values:
-#   - Database credentials (DB_USER, DB_PASS, DB_NAME)
-#   - LLM API key (GEMINI_API_KEY)
-#   - Embedding model (CLIP_MODEL, EMBEDDING_DIM)
-#   - Frontend configuration (API_BASE_URL, FRONTEND_PORT)
-```
-
-**Required Variables:**
-- **Database**: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`
-- **LLM**: `LLM_PROVIDER`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `LLM_TEMPERATURE`
-- **Embeddings**: `CLIP_MODEL`, `EMBEDDING_DIM`
-
-**Optional Variables:**
-- **Startup Tests**: `RUN_TESTS_ON_STARTUP` (set to `true` to run database schema tests on container startup)
-- **Endpoint Tests on Boot**: `AUTOMATE_ENDPOINT_RUNS_ON_BOOT` (set to `true` to run endpoint tests after `make up-and-test`)
-
-See [`md_guides/ENVIRONMENT_SETUP.md`](md_guides/ENVIRONMENT_SETUP.md) for detailed configuration options.
-
-</details>
-
-<details>
-<summary><strong>Component-Specific `.env` Files (Independent Services)</strong> - Click to expand</summary>
-
-If running services independently, create component-specific `.env` files:
-
-**Backend `.env` (from `deep_rag_backend/` directory):**
-```bash
-cd deep_rag_backend
-cp .env.example .env
-# Edit with backend-specific values
-```
-
-**Frontend `.env` (from `deep_rag_frontend/` directory):**
-```bash
-cd deep_rag_frontend
-cp .env.example .env
-# Edit with frontend-specific values (API_BASE_URL)
-```
-
-**Database `.env` (from `vector_db/` directory):**
-```bash
-cd vector_db
-cp .env.example .env
-# Edit with database credentials
-```
-
-**Note:** Never commit `.env` files to git - they contain sensitive information.
-
-</details>
 
 ## Docker Deployment
 

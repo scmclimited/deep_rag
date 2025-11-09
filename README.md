@@ -11,26 +11,10 @@ The project is organized into separate backend and frontend components:
 ```
 deep_rag/                          # Project root
 ├── deep_rag_backend/              # Backend API (FastAPI)
-│   ├── inference/                 # API routes, agents, LangGraph
-│   ├── ingestion/                 # Document ingestion pipeline
-│   ├── retrieval/                 # Hybrid retrieval system
-│   ├── tests/                     # Test suite
-│   ├── Dockerfile                 # Backend Docker image
-│   ├── docker-compose.yml         # Backend standalone compose
-|   └── .env.example               # API environment template
 │
-├── deep_rag_frontend/             # Frontend UI (Streamlit)
-│   ├── app.py                     # Main Streamlit app
-│   ├── api_client.py              # API client wrapper
-│   ├── Dockerfile                 # Frontend Docker image
-│   ├── docker-compose.yml         # Frontend standalone compose
-|   └── .env.example               # Frontend environment template
+├── deep_rag_frontend_vue/         # Frontend UI (Vue.js)
 │
 ├── vector_db/                     # Database schemas and migrations
-│   ├── schema_multimodal.sql      # Main schema
-│   ├── migration_*.sql            # Migration scripts
-│   ├── docker-compose.yml         # Database standalone compose
-│   └── .env.example               # Database environment template
 │
 ├── docker-compose.yml             # Full stack orchestration (all 3 services)
 ├── .env.example                   # Root environment template (all services)
@@ -45,7 +29,8 @@ deep_rag/                          # Project root
 # 🧩 Prerequisites
 
 - **Python ≥ 3.11** (required for Google Gemini support due to 3.10 support deprecation in 2026)  
-- **Docker & Docker Compose**  
+- **Docker & Docker Compose**
+- **NodeJS (npm)**  
 - **(Optional) Tesseract OCR + Poppler** (for scanned PDFs)
 
 ## Install System Dependencies

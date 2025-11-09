@@ -20,22 +20,18 @@ def sanitize_query_for_tsquery(query: str) -> str:
     Returns:
         Sanitized query string safe for tsquery
     """
-    # Remove leading bullet points, asterisks, dashes
+    # Normalize line breaks and strip leading bullet characters / whitespace
+    query = query.replace('\r', ' ').replace('\n', ' ')
     query = re.sub(r'^[\*\-\•\s]+', '', query.strip())
-    
+
     # Replace literal & with "and" (preserve the meaning but avoid tsquery syntax conflicts)
     query = query.replace('&', ' and ')
-    
-    # Remove or escape other tsquery special characters
-    # These characters have special meaning in tsquery: |, !, (, ), :, *
-    # We'll remove them to avoid syntax errors, as they're not typically needed for basic search
-    query = re.sub(r'[\!\|\:\*]', ' ', query)
-    
-    # Remove quotes that might cause issues
-    query = query.replace('"', '').replace("'", '')
-    
-    # Normalize whitespace
+
+    # Remove all characters that could break tsquery syntax, leaving only letters, numbers, and spaces
+    query = re.sub(r'[^0-9a-zA-Z\s]', ' ', query)
+
+    # Collapse multiple spaces and trim
     query = re.sub(r'\s+', ' ', query).strip()
-    
+
     return query
 

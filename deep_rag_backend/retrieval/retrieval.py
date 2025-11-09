@@ -76,7 +76,15 @@ def retrieve_hybrid(
     
     # Standard single-stage retrieval
     # If cross_doc=True but no doc_id, enable cross-document search
-    # If cross_doc=False and doc_id provided, strict doc_id filtering
+    # If cross_doc=False and doc_id provided, strict doc_id filtering (ONLY search within doc_id)
     # If cross_doc=False and no doc_id, search all documents
     
-    return retrieve_stage_one(query, k, k_lex, k_vec, query_image, doc_id if not cross_doc else None)
+    # CRITICAL FIX: When cross_doc=False and doc_id is provided, ONLY search within that doc_id
+    # When cross_doc=True, allow cross-document search (pass None to search all)
+    if cross_doc:
+        # Cross-doc enabled: search all documents (pass None to retrieve_stage_one)
+        return retrieve_stage_one(query, k, k_lex, k_vec, query_image, None)
+    else:
+        # Cross-doc disabled: if doc_id provided, ONLY search within that doc_id
+        # If no doc_id, search all documents (fallback behavior)
+        return retrieve_stage_one(query, k, k_lex, k_vec, query_image, doc_id)

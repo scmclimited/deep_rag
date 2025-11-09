@@ -19,7 +19,8 @@ class TestSynthesizer:
             "question": "What is the answer?",
             "plan": "Test plan",
             "evidence": [
-                {"chunk_id": "1", "text": "Evidence text", "p0": 1, "p1": 1, "doc_id": "doc1"}
+                {"chunk_id": "1", "text": "Evidence text", "p0": 1, "p1": 1, "doc_id": "doc1", 
+                 "lex": 0.8, "vec": 0.7, "ce": 0.75}
             ],
             "notes": "Test notes",
             "answer": "",
@@ -44,7 +45,8 @@ class TestSynthesizer:
             "question": "Test question",
             "plan": "Test plan",
             "evidence": [
-                {"chunk_id": "1", "text": "Evidence", "p0": 1, "p1": 1, "doc_id": "doc1"}
+                {"chunk_id": "1", "text": "Evidence", "p0": 1, "p1": 1, "doc_id": "doc1",
+                 "lex": 0.8, "vec": 0.7, "ce": 0.75}
             ],
             "notes": "Test notes",
             "answer": "",
@@ -70,7 +72,8 @@ class TestSynthesizer:
             "question": "Test question",
             "plan": "Test plan",
             "evidence": [
-                {"chunk_id": "1", "text": "Evidence", "p0": 1, "p1": 1, "doc_id": "doc1"}
+                {"chunk_id": "1", "text": "Evidence", "p0": 1, "p1": 1, "doc_id": "doc1",
+                 "lex": 0.8, "vec": 0.7, "ce": 0.75}
             ],
             "notes": "Test notes",
             "answer": "",
@@ -95,8 +98,10 @@ class TestSynthesizer:
             "question": "Test question",
             "plan": "Test plan",
             "evidence": [
-                {"chunk_id": "1", "text": "Evidence 1", "p0": 1, "p1": 1, "doc_id": "doc1"},
-                {"chunk_id": "2", "text": "Evidence 2", "p0": 2, "p1": 2, "doc_id": "doc2"}
+                {"chunk_id": "1", "text": "Evidence 1", "p0": 1, "p1": 1, "doc_id": "doc1",
+                 "lex": 0.8, "vec": 0.7, "ce": 0.75},
+                {"chunk_id": "2", "text": "Evidence 2", "p0": 2, "p1": 2, "doc_id": "doc2",
+                 "lex": 0.8, "vec": 0.7, "ce": 0.75}
             ],
             "notes": "Test notes",
             "answer": "",
@@ -121,7 +126,8 @@ class TestSynthesizer:
             "question": "Test question",
             "plan": "Test plan",
             "evidence": [
-                {"chunk_id": str(i), "text": f"Evidence {i}", "p0": i, "p1": i, "doc_id": f"doc{i}"}
+                {"chunk_id": str(i), "text": f"Evidence {i}", "p0": i, "p1": i, "doc_id": f"doc{i}",
+                 "lex": 0.8, "vec": 0.7, "ce": 0.75}
                 for i in range(10)  # 10 chunks
             ],
             "notes": "Test notes",
@@ -141,4 +147,56 @@ class TestSynthesizer:
         assert "[1]" in context
         assert "[5]" in context
         assert "[6]" not in context  # Should not be included
+    
+    def test_synthesizer_no_evidence_abstains(self):
+        """Test that synthesizer abstains when no evidence is provided."""
+        state: State = {
+            "question": "Test question",
+            "plan": "Test plan",
+            "evidence": [],  # No evidence
+            "notes": "Test notes",
+            "answer": "",
+            "confidence": 0.0,
+            "iterations": 0,
+            "doc_ids": [],
+            "cross_doc": False
+        }
+        
+        result = synthesizer(state)
+        
+        # Should abstain with "I don't know"
+        assert result["answer"] == "I don't know."
+        assert result["confidence"] == 0.0
+    
+    @patch('inference.agents.synthesizer.get_confidence_for_chunks')
+    def test_synthesizer_low_confidence_abstains(self, mock_confidence):
+        """Test that synthesizer abstains when confidence < 40% even if above normal threshold."""
+        # Mock confidence to return < 40%
+        mock_confidence.return_value = {
+            "confidence": 35.0,  # Below 40% threshold
+            "probability": 0.35,
+            "action": "answer",  # Above normal abstain threshold but below 40%
+            "features": {}
+        }
+        
+        state: State = {
+            "question": "Test question",
+            "plan": "Test plan",
+            "evidence": [
+                {"chunk_id": "1", "text": "Low quality evidence", "p0": 1, "p1": 1, "doc_id": "doc1",
+                 "lex": 0.2, "vec": 0.2, "ce": 0.2}
+            ],
+            "notes": "Test notes",
+            "answer": "",
+            "confidence": 0.0,
+            "iterations": 0,
+            "doc_ids": [],
+            "cross_doc": False
+        }
+        
+        result = synthesizer(state)
+        
+        # Should abstain even though action is "answer" (confidence < 40%)
+        assert result["answer"] == "I don't know."
+        assert result["confidence"] == 35.0
 

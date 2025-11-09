@@ -5,7 +5,7 @@ DC ?= docker compose
 # Defaults (override like: make ingest FILE=./samples/doc.pdf)
 FILE ?=
 Q ?=
-OUT ?= deep_rag_graph.png
+OUT ?= inference/graph/artifacts/deep_rag_graph.png
 
 .PHONY: help up down logs rebuild db-up db-down ingest query query-graph infer-graph graph health inspect
 
@@ -26,7 +26,7 @@ help:
 	@echo "make query-graph  Q='your question here'  # uses LangGraph (with conditional routing)"
 	@echo "make infer  Q='your question' [FILE=path/to/file.pdf] [TITLE='Title']  # uses direct pipeline"
 	@echo "make infer-graph  Q='your question' [FILE=path/to/file.pdf] [TITLE='Title']  # uses LangGraph"
-	@echo "make graph  OUT=deep_rag_graph.png [DOCKER=true]  # export LangGraph diagram (PNG or Mermaid fallback)"
+	@echo "make graph  OUT=inference/graph/artifacts/deep_rag_graph.png [DOCKER=true]  # export LangGraph diagram (PNG or Mermaid fallback)"
 	@echo "make health  # check API and database health status"
 	@echo "make inspect [TITLE='Document Title'] [DOC_ID=uuid] [DOCKER=true]  # inspect stored chunks and pages for a document"
 	@echo "make test [DOCKER=true]  # run all tests (unit + integration)"
@@ -40,7 +40,7 @@ help:
 
 # --- Root stack (API + DB) ---
 up:
-	$(DC) up -d --build
+	$(DC) -f ../docker-compose.yml up -d --build
 	@echo ""
 	@echo "Services started. Waiting for API to be ready..."
 	@sleep 3
@@ -62,14 +62,14 @@ up-and-test: up
 	fi
 
 down:
-	$(DC) down -v
+	$(DC) -f ../docker-compose.yml down -v
 
 logs:
-	$(DC) logs -f
+	$(DC) -f ../docker-compose.yml logs -f
 
 rebuild:
-	$(DC) build --no-cache
-	$(DC) up -d
+	$(DC) -f ../docker-compose.yml build --no-cache
+	$(DC) -f ../docker-compose.yml up -d
 
 # --- DB-only stack (useful for local dev) ---
 db-up:
@@ -87,7 +87,7 @@ ingest:
 	@if [ -z "$(FILE)" ]; then echo "Usage: make ingest FILE=path/to/file.pdf [DOCKER=true]"; exit 2; fi
 	@if [ "$(DOCKER)" = "true" ]; then \
 		FILE_PATH=$$(echo "$(FILE)" | tr '\\\\' '/'); \
-		docker compose exec api python -m ingestion.ingest "$$FILE_PATH"; \
+		docker compose -f ../docker-compose.yml exec api python -m ingestion.ingest "$$FILE_PATH"; \
 	else \
 		$(PY) ingestion/ingest.py "$(FILE)"; \
 	fi
@@ -97,15 +97,15 @@ query:
 	@if [ "$(DOCKER)" = "true" ]; then \
 		if [ -n "$(DOC_ID)" ]; then \
 			if [ "$(CROSS_DOC)" = "true" ]; then \
-				docker compose exec api python -m inference.cli query "$(Q)" --doc-id "$(DOC_ID)" --cross-doc; \
+				docker compose -f ../docker-compose.yml exec api python -m inference.cli query "$(Q)" --doc-id "$(DOC_ID)" --cross-doc; \
 			else \
-				docker compose exec api python -m inference.cli query "$(Q)" --doc-id "$(DOC_ID)"; \
+				docker compose -f ../docker-compose.yml exec api python -m inference.cli query "$(Q)" --doc-id "$(DOC_ID)"; \
 			fi \
 		else \
 			if [ "$(CROSS_DOC)" = "true" ]; then \
-				docker compose exec api python -m inference.cli query "$(Q)" --cross-doc; \
+				docker compose -f ../docker-compose.yml exec api python -m inference.cli query "$(Q)" --cross-doc; \
 			else \
-				docker compose exec api python -m inference.cli query "$(Q)"; \
+				docker compose -f ../docker-compose.yml exec api python -m inference.cli query "$(Q)"; \
 			fi \
 		fi \
 	else \
@@ -130,29 +130,29 @@ query-graph:
 		if [ -n "$(DOC_ID)" ]; then \
 			if [ -n "$(THREAD_ID)" ]; then \
 				if [ "$(CROSS_DOC)" = "true" ]; then \
-					docker compose exec api python -m inference.cli query-graph "$(Q)" --thread-id "$(THREAD_ID)" --doc-id "$(DOC_ID)" --cross-doc; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli query-graph "$(Q)" --thread-id "$(THREAD_ID)" --doc-id "$(DOC_ID)" --cross-doc; \
 				else \
-					docker compose exec api python -m inference.cli query-graph "$(Q)" --thread-id "$(THREAD_ID)" --doc-id "$(DOC_ID)"; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli query-graph "$(Q)" --thread-id "$(THREAD_ID)" --doc-id "$(DOC_ID)"; \
 				fi \
 			else \
 				if [ "$(CROSS_DOC)" = "true" ]; then \
-					docker compose exec api python -m inference.cli query-graph "$(Q)" --doc-id "$(DOC_ID)" --cross-doc; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli query-graph "$(Q)" --doc-id "$(DOC_ID)" --cross-doc; \
 				else \
-					docker compose exec api python -m inference.cli query-graph "$(Q)" --doc-id "$(DOC_ID)"; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli query-graph "$(Q)" --doc-id "$(DOC_ID)"; \
 				fi \
 			fi \
 		else \
 			if [ -n "$(THREAD_ID)" ]; then \
 				if [ "$(CROSS_DOC)" = "true" ]; then \
-					docker compose exec api python -m inference.cli query-graph "$(Q)" --thread-id "$(THREAD_ID)" --cross-doc; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli query-graph "$(Q)" --thread-id "$(THREAD_ID)" --cross-doc; \
 				else \
-					docker compose exec api python -m inference.cli query-graph "$(Q)" --thread-id "$(THREAD_ID)"; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli query-graph "$(Q)" --thread-id "$(THREAD_ID)"; \
 				fi \
 			else \
 				if [ "$(CROSS_DOC)" = "true" ]; then \
-					docker compose exec api python -m inference.cli query-graph "$(Q)" --cross-doc; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli query-graph "$(Q)" --cross-doc; \
 				else \
-					docker compose exec api python -m inference.cli query-graph "$(Q)"; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli query-graph "$(Q)"; \
 				fi \
 			fi \
 		fi \
@@ -193,9 +193,9 @@ cli-ingest:
 	@if [ "$(DOCKER)" = "true" ]; then \
 		FILE_PATH=$$(echo "$(FILE)" | tr '\\\\' '/'); \
 		if [ -n "$(TITLE)" ]; then \
-			docker compose exec api python -m inference.cli ingest "$$FILE_PATH" --title "$(TITLE)"; \
+			docker compose -f ../docker-compose.yml exec api python -m inference.cli ingest "$$FILE_PATH" --title "$(TITLE)"; \
 		else \
-			docker compose exec api python -m inference.cli ingest "$$FILE_PATH"; \
+			docker compose -f ../docker-compose.yml exec api python -m inference.cli ingest "$$FILE_PATH"; \
 		fi \
 	else \
 		if [ -n "$(TITLE)" ]; then \
@@ -213,22 +213,22 @@ infer:
 			FILE_PATH=$$(echo "$(FILE)" | tr '\\\\' '/'); \
 			if [ -n "$(TITLE)" ]; then \
 				if [ "$(CROSS_DOC)" = "true" ]; then \
-					docker compose exec api python -m inference.cli infer "$(Q)" --file "$$FILE_PATH" --title "$(TITLE)" --cross-doc; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli infer "$(Q)" --file "$$FILE_PATH" --title "$(TITLE)" --cross-doc; \
 				else \
-					docker compose exec api python -m inference.cli infer "$(Q)" --file "$$FILE_PATH" --title "$(TITLE)"; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli infer "$(Q)" --file "$$FILE_PATH" --title "$(TITLE)"; \
 				fi \
 			else \
 				if [ "$(CROSS_DOC)" = "true" ]; then \
-					docker compose exec api python -m inference.cli infer "$(Q)" --file "$$FILE_PATH" --cross-doc; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli infer "$(Q)" --file "$$FILE_PATH" --cross-doc; \
 				else \
-					docker compose exec api python -m inference.cli infer "$(Q)" --file "$$FILE_PATH"; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli infer "$(Q)" --file "$$FILE_PATH"; \
 				fi \
 			fi \
 		else \
 			if [ "$(CROSS_DOC)" = "true" ]; then \
-				docker compose exec api python -m inference.cli infer "$(Q)" --cross-doc; \
+				docker compose -f ../docker-compose.yml exec api python -m inference.cli infer "$(Q)" --cross-doc; \
 			else \
-				docker compose exec api python -m inference.cli infer "$(Q)"; \
+				docker compose -f ../docker-compose.yml exec api python -m inference.cli infer "$(Q)"; \
 			fi \
 		fi \
 	else \
@@ -263,22 +263,22 @@ infer-graph:
 			FILE_PATH=$$(echo "$(FILE)" | tr '\\\\' '/'); \
 			if [ -n "$(TITLE)" ]; then \
 				if [ -n "$(THREAD_ID)" ]; then \
-					docker compose exec api python -m inference.cli infer-graph "$(Q)" --file "$$FILE_PATH" --title "$(TITLE)" --thread-id "$(THREAD_ID)"; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli infer-graph "$(Q)" --file "$$FILE_PATH" --title "$(TITLE)" --thread-id "$(THREAD_ID)"; \
 				else \
-					docker compose exec api python -m inference.cli infer-graph "$(Q)" --file "$$FILE_PATH" --title "$(TITLE)"; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli infer-graph "$(Q)" --file "$$FILE_PATH" --title "$(TITLE)"; \
 				fi \
 			else \
 				if [ -n "$(THREAD_ID)" ]; then \
-					docker compose exec api python -m inference.cli infer-graph "$(Q)" --file "$$FILE_PATH" --thread-id "$(THREAD_ID)"; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli infer-graph "$(Q)" --file "$$FILE_PATH" --thread-id "$(THREAD_ID)"; \
 				else \
-					docker compose exec api python -m inference.cli infer-graph "$(Q)" --file "$$FILE_PATH"; \
+					docker compose -f ../docker-compose.yml exec api python -m inference.cli infer-graph "$(Q)" --file "$$FILE_PATH"; \
 				fi \
 			fi \
 		else \
 			if [ -n "$(THREAD_ID)" ]; then \
-				docker compose exec api python -m inference.cli infer-graph "$(Q)" --thread-id "$(THREAD_ID)"; \
+				docker compose -f ../docker-compose.yml exec api python -m inference.cli infer-graph "$(Q)" --thread-id "$(THREAD_ID)"; \
 			else \
-				docker compose exec api python -m inference.cli infer-graph "$(Q)"; \
+				docker compose -f ../docker-compose.yml exec api python -m inference.cli infer-graph "$(Q)"; \
 			fi \
 		fi \
 	else \
@@ -314,7 +314,7 @@ test:
 unit-tests:
 	@echo "Running unit tests..."
 	@if [ "$(DOCKER)" = "true" ]; then \
-		docker compose exec api python -m pytest tests/unit/ -v; \
+		docker compose -f ../docker-compose.yml exec api python -m pytest tests/unit/ -v; \
 	else \
 		$(PY) -m pytest tests/unit/ -v; \
 	fi
@@ -322,7 +322,7 @@ unit-tests:
 integration-tests:
 	@echo "Running integration tests..."
 	@if [ "$(DOCKER)" = "true" ]; then \
-		docker compose exec api python -m pytest tests/integration/ -v; \
+		docker compose -f ../docker-compose.yml exec api python -m pytest tests/integration/ -v; \
 	else \
 		$(PY) -m pytest tests/integration/ -v; \
 	fi
@@ -347,9 +347,9 @@ test-endpoints-quick:
 # Use DOCKER=true to run inside Docker container where dependencies are installed
 graph:
 	@if [ "$(DOCKER)" = "true" ]; then \
-		docker compose exec api python -m inference.graph.graph_viz --out "$(OUT)"; \
+		docker compose -f ../docker-compose.yml exec api python -m inference.graph.graph_viz --out "$(OUT)"; \
 	else \
-		$(PY) inference/graph/graph_viz.py --out "$(OUT)"; \
+		$(PY) -m inference.graph.graph_viz --out "$(OUT)"; \
 	fi
 	@echo "Graph written to $(OUT) (or .mmd fallback if Graphviz is missing)"
 
@@ -364,11 +364,11 @@ health:
 inspect:
 	@if [ "$(DOCKER)" = "true" ]; then \
 		if [ -n "$(DOC_ID)" ]; then \
-			docker compose exec api python -m inference.cli inspect --doc-id "$(DOC_ID)"; \
+			docker compose -f ../docker-compose.yml exec api python -m inference.cli inspect --doc-id "$(DOC_ID)"; \
 		elif [ -n "$(TITLE)" ]; then \
-			docker compose exec api python -m inference.cli inspect --title "$(TITLE)"; \
+			docker compose -f ../docker-compose.yml exec api python -m inference.cli inspect --title "$(TITLE)"; \
 		else \
-			docker compose exec api python -m inference.cli inspect; \
+			docker compose -f ../docker-compose.yml exec api python -m inference.cli inspect; \
 		fi \
 	else \
 		if [ -n "$(DOC_ID)" ]; then \

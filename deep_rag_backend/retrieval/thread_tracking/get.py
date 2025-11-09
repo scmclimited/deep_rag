@@ -26,6 +26,7 @@ def get_thread_interactions(
         List of thread interaction records
     """
     try:
+        logger.info(f"get_thread_interactions: Querying with user_id='{user_id}', thread_id='{thread_id}', limit={limit}")
         with connect() as conn, conn.cursor() as cur:
             conditions = []
             params = []
@@ -33,15 +34,17 @@ def get_thread_interactions(
             if user_id:
                 conditions.append("user_id = %s")
                 params.append(user_id)
+                logger.info(f"get_thread_interactions: Added condition user_id='{user_id}'")
             
             if thread_id:
                 conditions.append("thread_id = %s")
                 params.append(thread_id)
+                logger.info(f"get_thread_interactions: Added condition thread_id='{thread_id}'")
             
             where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
             params.append(limit)
             
-            cur.execute(f"""
+            query = f"""
                 SELECT id, user_id, thread_id, query_text, doc_ids, final_answer,
                        graphstate, ingestion_meta, entry_point, pipeline_type,
                        cross_doc, metadata, created_at, completed_at
@@ -49,9 +52,14 @@ def get_thread_interactions(
                 {where_clause}
                 ORDER BY created_at DESC
                 LIMIT %s
-            """, params)
+            """
+            logger.info(f"get_thread_interactions: Executing query: {query.strip()}")
+            logger.info(f"get_thread_interactions: With params: {params}")
+            
+            cur.execute(query, params)
             
             rows = cur.fetchall()
+            logger.info(f"get_thread_interactions: Query returned {len(rows)} rows")
             results = []
             for row in rows:
                 results.append({

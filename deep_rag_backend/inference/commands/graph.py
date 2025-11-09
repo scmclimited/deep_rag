@@ -5,7 +5,7 @@ import typer
 from inference.graph.graph_viz import export_graph_png
 
 
-def graph(out: str = typer.Option("deep_rag_graph.png", "--out", "-o", help="Output file path for the graph")):
+def graph(out: str = typer.Option("inference/graph/artifacts/deep_rag_graph.png", "--out", "-o", help="Output file path for the graph")):
     """
     Export the LangGraph as PNG (Graphviz) or Mermaid (.mmd fallback).
     """

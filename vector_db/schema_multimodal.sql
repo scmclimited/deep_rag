@@ -9,9 +9,15 @@ CREATE TABLE documents (
   doc_id      UUID PRIMARY KEY,
   title       TEXT,
   source_path TEXT,
+  content_hash TEXT,              -- SHA256 hash of document content for duplicate detection
   meta        JSONB DEFAULT '{}',
   created_at  TIMESTAMP DEFAULT now()
 );
+
+-- Index for content_hash for faster duplicate lookups
+CREATE INDEX idx_documents_content_hash ON documents(content_hash);
+
+COMMENT ON COLUMN documents.content_hash IS 'SHA256 hash of document content for duplicate detection';
 
 -- CLIP-ViT-L/14 produces 768-dimensional embeddings (multi-modal, upgraded from ViT-B/32)
 -- Supports: text, images, and text+image combinations in same semantic space

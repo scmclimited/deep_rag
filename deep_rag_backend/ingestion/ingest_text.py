@@ -21,7 +21,7 @@ def normalize(v: np.ndarray) -> np.ndarray:
 
 from retrieval.db_utils import connect
 
-def semantic_chunks_text(text: str, max_words=25, overlap=5):
+def semantic_chunks_text(text: str, max_words=25, overlap=12):
     """
     Split text into semantic chunks with overlap.
     Similar to PDF chunking but for plain text.

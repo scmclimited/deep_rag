@@ -39,10 +39,39 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
     doc_ids_found = set(state.get('doc_ids', []))
     hits_all: List[Dict[str, Any]] = []
     
+    # CRITICAL FIX: If specific documents are selected, query those documents (ignore cross_doc flag)
+    # cross_doc flag only applies when no specific documents are selected
+    doc_ids_to_filter = None
+    if selected_doc_ids and len(selected_doc_ids) > 0:
+        doc_ids_to_filter = list(selected_doc_ids)
+        if doc_id and doc_id not in doc_ids_to_filter:
+            doc_ids_to_filter.append(doc_id)
+    elif doc_id:
+        doc_ids_to_filter = [doc_id]
+    
+    # Determine doc_id and cross_doc for retrieval
+    if doc_ids_to_filter and len(doc_ids_to_filter) > 0:
+        doc_id_for_retrieval = doc_ids_to_filter[0]
+        cross_doc_for_retrieval = False  # Force single-doc when specific doc is selected
+        logger.info(f"Refinement queries will target specific document: {doc_id_for_retrieval[:8]}... (cross_doc flag ignored)")
+    else:
+        doc_id_for_retrieval = None
+        cross_doc_for_retrieval = cross_doc
+        if cross_doc:
+            logger.info("Refinement queries will use cross-document search (no specific documents selected)")
+    
     for idx, rq in enumerate(refinements, 1):
         logger.info(f"Refinement {idx}/{len(refinements)}: {rq}")
-        hits = retrieve_hybrid(rq, k=6, k_lex=30, k_vec=30, doc_id=doc_id, cross_doc=cross_doc)
-        logger.info(f"  Retrieved {len(hits)} chunks")
+        hits = retrieve_hybrid(rq, k=15, k_lex=75, k_vec=75, doc_id=doc_id_for_retrieval, cross_doc=cross_doc_for_retrieval)
+        
+        # Filter hits to only include selected doc_ids if specific documents were selected
+        if doc_ids_to_filter and len(doc_ids_to_filter) > 0:
+            doc_ids_set = set(doc_ids_to_filter)
+            hits = [h for h in hits if h.get('doc_id') in doc_ids_set]
+            logger.info(f"  Retrieved {len(hits)} chunks (filtered to selected documents)")
+        else:
+            logger.info(f"  Retrieved {len(hits)} chunks")
+        
         hits_all.extend(hits)
         
         # Track doc_ids from refinement retrieval

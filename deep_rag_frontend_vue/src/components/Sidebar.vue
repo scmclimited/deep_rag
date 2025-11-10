@@ -335,8 +335,8 @@ async function switchToThread(threadId) {
     const threadEntry = store.threads?.[threadId]
     if (threadEntry && threadEntry.persisted !== false) {
       console.log('switchToThread: Loading thread history from API')
-      await loadThreadHistory(threadId)
-      console.log('switchToThread: Thread history loaded successfully')
+    await loadThreadHistory(threadId)
+    console.log('switchToThread: Thread history loaded successfully')
     } else {
       console.log('switchToThread: Thread not persisted yet, using local cache')
     }
@@ -385,7 +385,7 @@ async function loadThreadHistory(threadId) {
       } else {
         // Keep local messages if they're equal or more than backend
         console.log(`loadThreadHistory: Keeping ${localMessages.length} local messages, backend has ${backendMessages.length}`)
-        if (store.currentThreadId === threadId) {
+      if (store.currentThreadId === threadId) {
           store.messages = [...localMessages]
         }
       }

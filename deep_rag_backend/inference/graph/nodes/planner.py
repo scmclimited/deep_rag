@@ -11,13 +11,21 @@ agent_log = get_agent_logger()
 
 
 def node_planner(state: GraphState) -> GraphState:
-    logger.info("-" * 40)
+    logger.info("=" * 80)
     logger.info("GRAPH NODE: Planner - Decomposing question into sub-goals")
-    logger.info(f"State snapshot → iterations={state.get('iterations', 0)}, doc_id={state.get('doc_id')}")
-    logger.info("-" * 40)
+    logger.info("=" * 80)
+    logger.info(f"State snapshot:")
+    logger.info(f"  - Iterations: {state.get('iterations', 0)}")
+    logger.info(f"  - Cross-doc: {state.get('cross_doc', False)}")
+    logger.info(f"  - Selected doc IDs: {state.get('selected_doc_ids')}")
+    logger.info(f"  - Doc ID: {state.get('doc_id')}")
+    logger.info("-" * 80)
     logger.info(f"Question: {state['question']}")
     doc_id = state.get('doc_id')
-    if doc_id:
+    selected_doc_ids = state.get('selected_doc_ids')
+    if selected_doc_ids and len(selected_doc_ids) > 0:
+        logger.info(f"Planning for {len(selected_doc_ids)} selected document(s): {[d[:8] + '...' for d in selected_doc_ids]}")
+    elif doc_id:
         logger.info(f"Planning for specific document: {doc_id[:8]}...")
     
     # Include doc_id context in prompt if available

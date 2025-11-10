@@ -94,37 +94,40 @@
     </div>
     
     <!-- Input Field -->
-    <div class="flex items-center gap-3">
+    <div class="flex items-end gap-3">
       <button
         @click="toggleIngestion"
-        class="p-2.5 hover:bg-dark-surface rounded-lg transition-colors"
+        class="p-2.5 hover:bg-dark-surface rounded-lg transition-colors mb-1"
         title="Ingest document (no query)"
       >
         📤
       </button>
       <button
         @click="toggleAttachment"
-        class="p-2.5 hover:bg-dark-surface rounded-lg transition-colors"
+        class="p-2.5 hover:bg-dark-surface rounded-lg transition-colors mb-1"
         title="Attach file"
       >
         📎
       </button>
-      <input
+      <textarea
+        ref="textareaRef"
         v-model="inputText"
-        type="text"
         :placeholder="isProcessing ? 'Thinking...' : 'Ask a question...'"
-        class="flex-1 px-5 py-3.5 bg-dark-surface border border-dark-border rounded-xl text-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
-        @keyup.enter="handleEnterKey"
+        class="flex-1 px-5 py-3.5 bg-dark-surface border border-dark-border rounded-xl text-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all resize-none overflow-hidden"
+        @keydown.enter.exact.prevent="handleEnterKey"
+        @input="autoResize"
         :disabled="isProcessing"
+        rows="1"
+        style="min-height: 52px; max-height: 200px;"
       />
-      <div v-if="isProcessing" class="flex items-center gap-2 text-sm text-blue-400 px-3">
+      <div v-if="isProcessing" class="flex items-center gap-2 text-sm text-blue-400 px-3 mb-2">
         <span class="animate-pulse">⏳</span>
         <span>Thinking...</span>
       </div>
       <button
         @click="sendMessage"
         :disabled="!canSend"
-        class="p-3.5 bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        class="p-3.5 bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors mb-1"
         title="Send message"
       >
         ➤
@@ -134,7 +137,7 @@
 </template>
 
 <script setup>
-import { ref, computed, defineProps } from 'vue'
+import { ref, computed, defineProps, nextTick, onMounted } from 'vue'
 import { useAppStore } from '../stores/app'
 import { apiService } from '../services/api'
 
@@ -153,6 +156,7 @@ const fileInput = ref(null)
 const ingestFileInput = ref(null)
 const ingestingFile = ref(false)
 const ingestionQueue = ref([])
+const textareaRef = ref(null)
 
 // Use computed to maintain reactivity with store for THIS thread
 const pendingAttachments = computed(() => {
@@ -184,6 +188,25 @@ function toggleIngestion() {
     showAttachment.value = false
   }
 }
+
+// Auto-resize textarea based on content
+function autoResize() {
+  if (!textareaRef.value) return
+  
+  // Reset height to auto to get the correct scrollHeight
+  textareaRef.value.style.height = 'auto'
+  
+  // Set height to scrollHeight (content height) but respect max-height
+  const newHeight = Math.min(textareaRef.value.scrollHeight, 200)
+  textareaRef.value.style.height = `${newHeight}px`
+}
+
+// Initialize textarea height on mount
+onMounted(() => {
+  if (textareaRef.value) {
+    autoResize()
+  }
+})
 
 function handleEnterKey() {
   // Only send message if canSend is true (respects all validation logic)
@@ -337,6 +360,13 @@ async function sendMessage() {
   
   // Clear input immediately after adding message to chat
   inputText.value = ''
+  
+  // Reset textarea height after clearing input
+  await nextTick()
+  if (textareaRef.value) {
+    textareaRef.value.style.height = 'auto'
+    textareaRef.value.style.height = '52px' // Reset to min-height
+  }
   
   try {
     // Determine doc_ids to use for multi-document selection

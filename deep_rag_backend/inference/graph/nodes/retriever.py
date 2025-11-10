@@ -69,16 +69,93 @@ def node_retriever(state: GraphState) -> GraphState:
     
     logger.info(f"Retrieval parameters: k=8, k_lex=40, k_vec=40")
     
-    # For now, use first doc_id for backward compatibility (will enhance retrieve_hybrid later)
-    doc_id_for_retrieval = doc_ids_to_filter[0] if doc_ids_to_filter and not cross_doc else None
-    
-    hits = retrieve_hybrid(q, k=8, k_lex=40, k_vec=40, doc_id=doc_id_for_retrieval, cross_doc=cross_doc)
-    
-    # Filter hits to only include selected doc_ids if cross_doc=False and selected_doc_ids provided
-    if not cross_doc and doc_ids_to_filter and len(doc_ids_to_filter) > 0:
-        doc_ids_set = set(doc_ids_to_filter)
-        hits = [h for h in hits if h.get('doc_id') in doc_ids_set]
-        logger.info(f"Filtered to {len(hits)} chunks from selected documents")
+    # HYBRID APPROACH: Enhanced cross-doc + selection handling
+    # When cross_doc=True AND selected_doc_ids provided:
+    # - Prioritize selected documents (retrieve more from them)
+    # - But still allow cross-doc retrieval for supplementary context
+    if cross_doc and doc_ids_to_filter and len(doc_ids_to_filter) > 0:
+        logger.info(f"HYBRID MODE: Cross-doc enabled with {len(doc_ids_to_filter)} selected document(s)")
+        logger.info("  Strategy: Prioritize selected docs, supplement with cross-doc if needed")
+        
+        # First, retrieve from selected documents (higher k for better coverage)
+        selected_hits = []
+        for selected_doc in doc_ids_to_filter:
+            logger.info(f"  Retrieving from selected document: {selected_doc[:8]}...")
+            doc_hits = retrieve_hybrid(q, k=6, k_lex=30, k_vec=30, doc_id=selected_doc, cross_doc=False)
+            selected_hits.extend(doc_hits)
+            logger.info(f"    Found {len(doc_hits)} chunks")
+        
+        # Remove duplicates from selected hits
+        seen_selected = set()
+        unique_selected_hits = []
+        for h in selected_hits:
+            if h["chunk_id"] not in seen_selected:
+                seen_selected.add(h["chunk_id"])
+                unique_selected_hits.append(h)
+        
+        logger.info(f"  Total from selected documents: {len(unique_selected_hits)} unique chunks")
+        
+        # If we have good coverage from selected docs, use them
+        # Otherwise, supplement with cross-doc retrieval
+        if len(unique_selected_hits) >= 5:
+            logger.info("  Sufficient coverage from selected documents - using them")
+            hits = unique_selected_hits[:8]  # Cap at 8 for consistency
+        else:
+            logger.info(f"  Limited coverage ({len(unique_selected_hits)} chunks) - supplementing with cross-doc")
+            # Retrieve from all documents to supplement
+            cross_doc_hits = retrieve_hybrid(q, k=8, k_lex=40, k_vec=40, doc_id=None, cross_doc=True)
+            
+            # Merge selected hits (prioritized) with cross-doc hits
+            seen_all = set()
+            merged_hits = []
+            
+            # Add selected hits first (highest priority)
+            for h in unique_selected_hits:
+                if h["chunk_id"] not in seen_all:
+                    seen_all.add(h["chunk_id"])
+                    merged_hits.append(h)
+            
+            # Add cross-doc hits to fill gaps
+            for h in cross_doc_hits:
+                if h["chunk_id"] not in seen_all and len(merged_hits) < 8:
+                    seen_all.add(h["chunk_id"])
+                    merged_hits.append(h)
+            
+            hits = merged_hits
+            logger.info(f"  Merged result: {len(hits)} chunks ({len(unique_selected_hits)} from selected, {len(hits) - len(unique_selected_hits)} from cross-doc)")
+    else:
+        # Standard retrieval (no hybrid mode)
+        # CRITICAL FIX: For multi-document queries, retrieve from ALL selected documents
+        if not cross_doc and doc_ids_to_filter and len(doc_ids_to_filter) > 1:
+            # Multi-document query without cross-doc: retrieve from each document
+            logger.info(f"Multi-document retrieval: fetching from {len(doc_ids_to_filter)} document(s)")
+            all_hits = []
+            for doc in doc_ids_to_filter:
+                logger.info(f"  Retrieving from document: {doc[:8]}...")
+                doc_hits = retrieve_hybrid(q, k=6, k_lex=30, k_vec=30, doc_id=doc, cross_doc=False)
+                all_hits.extend(doc_hits)
+                logger.info(f"    Found {len(doc_hits)} chunks")
+            
+            # Remove duplicates
+            seen = set()
+            hits = []
+            for h in all_hits:
+                if h["chunk_id"] not in seen:
+                    seen.add(h["chunk_id"])
+                    hits.append(h)
+            
+            logger.info(f"  Total: {len(hits)} unique chunks from {len(doc_ids_to_filter)} documents")
+        else:
+            # Single document or cross-doc query
+            doc_id_for_retrieval = doc_ids_to_filter[0] if doc_ids_to_filter and not cross_doc else None
+            
+            hits = retrieve_hybrid(q, k=8, k_lex=40, k_vec=40, doc_id=doc_id_for_retrieval, cross_doc=cross_doc)
+            
+            # Filter hits to only include selected doc_ids if cross_doc=False and selected_doc_ids provided
+            if not cross_doc and doc_ids_to_filter and len(doc_ids_to_filter) > 0:
+                doc_ids_set = set(doc_ids_to_filter)
+                hits = [h for h in hits if h.get('doc_id') in doc_ids_set]
+                logger.info(f"Filtered to {len(hits)} chunks from selected documents")
     # Merge with any prior evidence (e.g., from refinement loops)
     seen, merged = set(), []
     for h in (state.get("evidence", []) + hits):

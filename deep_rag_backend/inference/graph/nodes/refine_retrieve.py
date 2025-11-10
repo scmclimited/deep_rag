@@ -13,29 +13,36 @@ agent_log = get_agent_logger()
 
 def node_refine_retrieve(state: GraphState) -> GraphState:
     """Optional additional retrieve step driven by critic's refinements."""
-    logger.info("-" * 40)
+    logger.info("=" * 80)
     logger.info("GRAPH NODE: Refine Retriever - Fetching additional chunks from refinements")
-    logger.info(
-        "State snapshot → iterations=%s, pending_refinements=%s",
-        state.get('iterations', 0),
-        state.get('refinements', []),
-    )
-    logger.info("-" * 40)
+    logger.info("=" * 80)
+    logger.info(f"State snapshot:")
+    logger.info(f"  - Iterations: {state.get('iterations', 0)}")
+    logger.info(f"  - Pending refinements: {len(state.get('refinements', []))}")
+    logger.info(f"  - Current evidence: {len(state.get('evidence', []))} chunks")
+    logger.info(f"  - Cross-doc: {state.get('cross_doc', False)}")
+    logger.info("-" * 80)
     
     refinements = state.get("refinements", [])
     if not refinements:
         logger.info("No refinements provided, skipping refinement retrieval")
-        logger.info("-" * 40)
+        logger.info("-" * 80)
         return {}
     
-    logger.info(f"Refinement queries: {refinements}")
+    logger.info(f"Processing {len(refinements)} refinement queries:")
+    for i, ref in enumerate(refinements, 1):
+        logger.info(f"  {i}. {ref}")
+    
     doc_id = state.get('doc_id')
+    selected_doc_ids = state.get('selected_doc_ids')
     cross_doc = state.get('cross_doc', False)
     doc_ids_found = set(state.get('doc_ids', []))
     hits_all: List[Dict[str, Any]] = []
-    for rq in refinements:
-        logger.info(f"Retrieving for: {rq}")
+    
+    for idx, rq in enumerate(refinements, 1):
+        logger.info(f"Refinement {idx}/{len(refinements)}: {rq}")
         hits = retrieve_hybrid(rq, k=6, k_lex=30, k_vec=30, doc_id=doc_id, cross_doc=cross_doc)
+        logger.info(f"  Retrieved {len(hits)} chunks")
         hits_all.extend(hits)
         
         # Track doc_ids from refinement retrieval

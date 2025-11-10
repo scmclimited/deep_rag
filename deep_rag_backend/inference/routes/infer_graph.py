@@ -143,6 +143,7 @@ async def infer_graph(
         
         # Determine which doc_ids to use for retrieval
         # Priority: selected_doc_ids (explicit user selection) > doc_ids from upload
+        # CRITICAL FIX: If user attaches documents, ALWAYS use them even if sidebar selection is empty
         doc_ids_to_use: Optional[List[str]] = None
         if selected_doc_ids_list is not None:
             # User explicitly provided selected_doc_ids (could be empty list)
@@ -156,10 +157,16 @@ async def infer_graph(
                 else:
                     logger.info(f"Using selected_doc_ids: {len(doc_ids_to_use)} document(s)")
             else:
-                # Empty list means user explicitly deselected all documents
-                # Don't use doc_id from upload if user explicitly deselected
-                doc_ids_to_use = None
-                logger.info("selected_doc_ids is empty - not filtering to any documents (user deselected all)")
+                # Empty selected_doc_ids list - check if user attached documents
+                if uploaded_doc_ids:
+                    # User attached documents but didn't select any from sidebar
+                    # Use the uploaded documents (this is the intended behavior)
+                    doc_ids_to_use = [doc for doc in uploaded_doc_ids if doc]
+                    logger.info(f"selected_doc_ids is empty but user attached {len(doc_ids_to_use)} document(s) - using uploaded docs")
+                else:
+                    # No selected docs AND no uploaded docs - user truly has no documents
+                    doc_ids_to_use = None
+                    logger.info("selected_doc_ids is empty and no attachments - not filtering to any documents (user deselected all)")
         elif uploaded_doc_ids:
             doc_ids_to_use = [doc for doc in uploaded_doc_ids if doc]
             if doc_ids_to_use:
@@ -170,6 +177,15 @@ async def infer_graph(
             logger.info(f"Using doc_id: {doc_id}...")
 
         doc_id_for_graph = doc_ids_to_use[0] if doc_ids_to_use else None
+        
+        # CRITICAL: Enable cross-doc mode for multi-document attachments
+        # This makes multi-doc attachments follow the same successful path as cross-doc search
+        # Thread B (cross-doc) succeeded with 91.8% confidence in 2 iterations
+        # Thread A (3 attachments) failed with "I don't know" after 5 iterations
+        # Solution: Treat multi-doc attachments like cross-doc search
+        if doc_ids_to_use and len(doc_ids_to_use) > 1 and not cross_doc:
+            cross_doc = True
+            logger.info(f"🔄 Auto-enabling cross-doc mode for {len(doc_ids_to_use)} attached documents (following successful cross-doc strategy)")
         
         # Run the query with LangGraph
         if cross_doc:
@@ -223,21 +239,25 @@ async def infer_graph(
             logger.error(f"Failed to log thread interaction: {e}", exc_info=True)
             # Don't fail the request if logging fails, but log as error
         
+        # Don't return uploaded_doc_ids or doc_ids if action is abstain
+        action = result.get("action", "answer")
+        is_abstain = action == "abstain"
+        
         return {
             "answer": result.get("answer", ""),
             "confidence": result.get("confidence", 0.0),
-            "action": result.get("action", "answer"),
+            "action": action,
             "mode": "ingest_and_query" if attachments_list else "query_only",
             "pipeline": "langgraph",
             "thread_id": thread_id_value,
             "attachment_processed": len(attachments_list) > 0,
             "filenames": [meta["filename"] for meta in attachment_metadata] if attachment_metadata else None,
             "file_types": [meta["file_type"] for meta in attachment_metadata] if attachment_metadata else None,
-            "uploaded_doc_ids": uploaded_doc_ids if uploaded_doc_ids else None,
-            "doc_id": final_doc_id,
-            "doc_ids": doc_ids,  # All doc_ids used
-            "doc_title": doc_title,
-            "pages": pages,  # Page references
+            "uploaded_doc_ids": None if is_abstain else (uploaded_doc_ids if uploaded_doc_ids else None),
+            "doc_id": None if is_abstain else final_doc_id,
+            "doc_ids": [] if is_abstain else doc_ids,  # Clear doc_ids for abstain
+            "doc_title": None if is_abstain else doc_title,
+            "pages": [] if is_abstain else pages,  # Clear pages for abstain
             "cross_doc": cross_doc
         }
                 

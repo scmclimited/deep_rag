@@ -78,8 +78,7 @@ def node_synthesizer(state: GraphState) -> GraphState:
     
     top_doc_ids: List[str] = []
     if doc_stats:
-        # Include ALL documents that appear in the top evidence chunks
-        # Sort by count (number of chunks) and score, but don't filter to just the best
+        # Sort by count (number of chunks) and score
         sorted_docs = sorted(
             doc_stats.items(),
             key=lambda item: (
@@ -88,13 +87,50 @@ def node_synthesizer(state: GraphState) -> GraphState:
                 item[1]["first_index"]
             )
         )
-        # Include all documents that contributed to the evidence
-        top_doc_ids = [doc for doc, stats in sorted_docs]
-        logger.info(f"Documents in top evidence (sorted by relevance): {top_doc_ids}")
+        
+        # Smart filtering: only include documents that meaningfully contributed
+        # Calculate total chunks and score distribution
+        if sorted_docs:
+            best_count = float(sorted_docs[0][1]["count"])
+            best_score = float(sorted_docs[0][1]["score"])
+            total_chunks = sum(float(stats["count"]) for _, stats in sorted_docs)
+            
+            logger.info(f"Document contribution analysis: {len(sorted_docs)} documents, {int(total_chunks)} total chunks")
+            for doc, stats in sorted_docs:
+                count = float(stats["count"])
+                score = float(stats["score"])
+                contribution_pct = (count / total_chunks * 100) if total_chunks > 0 else 0
+                score_ratio = (score / best_score) if best_score > 0 else 0
+                
+                logger.info(f"  - {doc[:8]}...: {int(count)} chunks ({contribution_pct:.1f}%), score ratio: {score_ratio:.2f}")
+                
+                # STRICT filtering: only include documents that are genuinely relevant
+                # Include document if it meets ANY of these criteria:
+                # 1. Top document AND score ratio > 0.3 (best match with minimum relevance)
+                # 2. Has 2+ chunks AND score ratio > 0.7 (multiple chunks + highly relevant)
+                # 3. Contributes >40% of chunks AND score ratio > 0.7 (dominant + highly relevant)
+                # 4. Score within 90% of best (very highly relevant)
+                include = (
+                    (doc == sorted_docs[0][0] and score_ratio > 0.3) or  # Top document with minimum relevance
+                    (count >= 2 and score_ratio >= 0.7) or  # Multiple chunks + highly relevant
+                    (contribution_pct >= 40.0 and score_ratio >= 0.7) or  # Dominant + highly relevant
+                    score_ratio >= 0.9  # Very high relevance
+                )
+                
+                if include:
+                    top_doc_ids.append(doc)
+                    logger.info(f"    ✓ Included: meaningful contribution")
+                else:
+                    logger.info(f"    ✗ Excluded: insufficient contribution")
+                    
+        logger.info(f"Final documents for citations: {len(top_doc_ids)} from {len(sorted_docs)} total")
         
         if selection_doc and selection_doc in doc_stats:
             doc_id = selection_doc
-            # Don't override top_doc_ids - keep all documents for citations
+            # Ensure selected doc is in top_doc_ids
+            if selection_doc not in top_doc_ids:
+                top_doc_ids.insert(0, selection_doc)
+                logger.info(f"Added explicitly selected document to citations: {doc_id}")
             logger.info(f"Using explicitly selected document: {doc_id}")
         elif not doc_id and top_doc_ids:
             doc_id = top_doc_ids[0]
@@ -112,9 +148,14 @@ def node_synthesizer(state: GraphState) -> GraphState:
     # Handle abstain action - also check if confidence is very low (< 40%) even if above threshold
     # This provides an extra safety check for cases with no documents
     if action == "abstain" or overall_confidence < 40.0:
-        result = {"answer": "I don't know.", "confidence": overall_confidence, "action": "abstain"}
-        if doc_id:
-            result["doc_id"] = doc_id
+        result = {
+            "answer": "I don't know.",
+            "confidence": overall_confidence,
+            "action": "abstain",
+            "doc_ids": [],  # Clear doc_ids for abstain
+            "pages": []     # Clear pages for abstain
+        }
+        # Don't include doc_id for abstain responses
         logger.info(f"Abstaining due to low confidence ({overall_confidence:.2f}%)")
         return result
     
@@ -161,7 +202,7 @@ def node_synthesizer(state: GraphState) -> GraphState:
     if action == "clarify":
         prompt = f"""Using ONLY the context, summarize cautiously in 1–2 sentences.
 If the answer is incomplete, say what's missing.
-Add bracket citations like [1], [2] that map to the provided context blocks.{doc_context}
+Do NOT add bracket citations or reference numbers in your response.{doc_context}
 
 Question: {state['question']}
 
@@ -169,17 +210,29 @@ Context:
 {context}
 """
     else:
-        prompt = f"""Answer the question using ONLY the context.
-If insufficient evidence, or the result is likely not in the context, say "I don't know."
-Add bracket citations like [1], [2] that map to the provided context blocks and snippets of text used from source documents.
-Which can include exact verbatim text from source documents or image descriptions.{doc_context}
+        prompt = f"""Answer the question using ONLY the context provided.
+
+CRITICAL INSTRUCTIONS:
+- If insufficient evidence exists, say "I don't know."
+- Do NOT add bracket citations or reference numbers in your response - citations will be added automatically.
+- Do NOT describe or mention documents that are not directly relevant to answering the question.
+- Do NOT fabricate relationships between documents unless explicitly stated in the context.
+- Focus ONLY on information that directly answers the question.
+- If the context contains multiple documents, only discuss those that are actually relevant to the answer.
+
+Provide a clear, direct answer based on the context.{doc_context}
 
 Question: {state['question']}
 
 Context:
 {context}
 """
-    ans = call_llm("You write precise, sourced answers.", [{"role":"user","content":prompt}], max_tokens=500, temperature=0.2)
+    ans = call_llm(
+        "You write precise, sourced answers. You ONLY discuss information that directly answers the question. You do NOT mention irrelevant documents or fabricate relationships.", 
+        [{"role":"user","content":prompt}], 
+        max_tokens=1500,  # Increased from 500 to allow for detailed answers with multiple sources
+        temperature=0.2
+    )
     out = ans.strip()
     normalized_out = out.lower().strip()
     normalized_ascii = normalized_out.encode("ascii", "ignore").decode("ascii") if normalized_out else ""

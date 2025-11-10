@@ -4,13 +4,13 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 120000, // 2 minutes default
+  timeout: 180000, // 3 minutes default
 })
 
-// Create a separate instance for long-running operations (file uploads + inference)
+// Create a separate instance for long-running operations (file uploads + inference, cross-doc queries)
 const apiLongRunning = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 300000, // 5 minutes for file uploads with inference
+  timeout: 600000, // 10 minutes for complex operations
 })
 
 export const apiService = {
@@ -86,7 +86,7 @@ export const apiService = {
   
   // Querying
   async askGraph(question, threadId, docId = null, crossDoc = false, selectedDocIds = [], userId = null) {
-    console.log('api.askGraph: Called with userId=', userId)
+    console.log('api.askGraph: Called with userId=', userId, 'crossDoc=', crossDoc)
     const data = {
       question,
       thread_id: threadId,
@@ -107,7 +107,9 @@ export const apiService = {
     if (docId) {
       data.doc_id = docId
     }
-    const response = await api.post('/ask-graph', data)
+    // Use long-running instance for cross-doc queries (they can take longer)
+    const apiInstance = crossDoc ? apiLongRunning : api
+    const response = await apiInstance.post('/ask-graph', data)
     return response.data
   },
   

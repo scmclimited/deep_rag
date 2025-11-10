@@ -279,6 +279,39 @@ async function sendMessage() {
     return
   }
   
+  // Validate that user has documents available for querying
+  // Skip validation if user has attachments (they're providing documents now)
+  if (!hasAttachments) {
+    const hasSelectedDocs = store.selectedDocIds && store.selectedDocIds.length > 0
+    const crossDocEnabled = store.crossDocSearch
+    const hasAnyDocs = store.documents && store.documents.length > 0
+    
+    // If cross-doc is disabled, no docs selected, and no attachments, reject immediately
+    if (!crossDocEnabled && !hasSelectedDocs) {
+      // Add the "no documents" message immediately without API call
+      const noDocsMessage = "No documents selected. Choose a document from the sidebar, attach a document to your next message, or enable Cross-Document Search."
+      
+      store.addMessage({
+        role: 'user',
+        content: question,
+        timestamp: new Date().toISOString()
+      }, props.threadId)
+      
+      store.addMessage({
+        role: 'assistant',
+        content: noDocsMessage,
+        timestamp: new Date().toISOString(),
+        doc_ids: [],
+        pages: [],
+        confidence: 0,
+        action: 'guidance'
+      }, props.threadId)
+      
+      inputText.value = ''
+      return
+    }
+  }
+  
   const wasCrossDocQuery = !!store.crossDocSearch
   const previousSelectedDocIds = [...store.selectedDocIds]
   

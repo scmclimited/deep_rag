@@ -173,13 +173,22 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
         if normalized_answer
         else ""
     )
-    if (
-        answer_normalized.startswith("i don't know")
-        or answer_normalized.startswith("i do not know")
-        or "i don't know" in answer_normalized.splitlines()[0]
-        or answer_ascii.startswith("i dont know")
-        or "i dont know" in answer_ascii.splitlines()[0]
-    ):
+    # Also check action for abstain
+    action = resp.get("action", "answer")
+    
+    is_abstain = (
+        action == "abstain" or
+        answer_normalized.startswith("i don't know") or
+        answer_normalized.startswith("i do not know") or
+        ("i don't know" in answer_normalized.splitlines()[0] if answer_normalized.splitlines() else False) or
+        answer_ascii.startswith("i dont know") or
+        ("i dont know" in answer_ascii.splitlines()[0] if answer_ascii.splitlines() else False) or
+        answer_normalized == "i don't know." or
+        answer_ascii == "i dont know."
+    )
+    
+    if is_abstain:
+        logger.info("Detected abstain response - clearing all sources")
         final_doc_ids = []
         primary_doc_id = None
         pages = []

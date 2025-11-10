@@ -8,14 +8,36 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASS}
       POSTGRES_DB: ${DB_NAME}
+      # Increase max connections for concurrent queries
+      POSTGRES_MAX_CONNECTIONS: 200
+      # Performance tuning for high-concurrency workloads
+      POSTGRES_SHARED_BUFFERS: 4GB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 12GB
+      POSTGRES_MAINTENANCE_WORK_MEM: 1GB
+      POSTGRES_WORK_MEM: 64MB
+      POSTGRES_MAX_WORKER_PROCESSES: 16
+      POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER: 4
+      POSTGRES_MAX_PARALLEL_WORKERS: 16
     ports:
       - "${DB_PORT:-5432}:5432"
+    # Increase resource limits for high-performance workloads
+    deploy:
+      resources:
+        limits:
+          cpus: '16.0'
+          memory: 16G
+        reservations:
+          cpus: '4.0'
+          memory: 4G
     volumes:
       # Schema with all features integrated (no migrations needed)
       - ./vector_db/schema_multimodal.sql:/docker-entrypoint-initdb.d/01_schema_multimodal.sql
+      # Custom PostgreSQL configuration for high-performance workloads
+      - ./vector_db/postgresql.conf:/etc/postgresql/postgresql.conf
       # Named volume for persistent data (remove to start fresh)
       # Uncomment to persist data across container restarts:
       # - deep_rag_db_data:/var/lib/postgresql/data
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s
@@ -48,8 +70,21 @@ services:
       DB_NAME: ${DB_NAME}
       # Optional: Set RUN_TESTS_ON_STARTUP=true to run database schema tests on startup
       # RUN_TESTS_ON_STARTUP: ${RUN_TESTS_ON_STARTUP:-false}
+      # Uvicorn workers for concurrent request handling (increase for high-concurrency)
+      UVICORN_WORKERS: 8
+      # Increase timeout for long-running LangGraph operations
+      UVICORN_TIMEOUT_KEEP_ALIVE: 300
     ports:
       - "8000:8000"
+    # Increase resource limits for high-performance workloads
+    deploy:
+      resources:
+        limits:
+          cpus: '16.0'
+          memory: 32G
+        reservations:
+          cpus: '4.0'
+          memory: 8G
     volumes:
       # Map logs directory from container to local filesystem (production logs only)
       # This ensures logs written to /app/inference/graph/logs/ inside the container

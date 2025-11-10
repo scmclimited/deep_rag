@@ -56,10 +56,21 @@
             v-for="thread in threadsList"
             :key="thread.thread_id"
             @click="switchToThread(thread.thread_id)"
-            class="p-2 bg-dark-bg rounded border border-dark-border hover:border-blue-500 cursor-pointer text-xs transition-colors"
+            class="p-2 bg-dark-bg rounded border border-dark-border hover:border-blue-500 cursor-pointer text-xs transition-colors relative"
             :class="{ 'border-blue-500 bg-blue-900/20': thread.thread_id === store.currentThreadId }"
           >
-            <div class="font-medium truncate">{{ thread.thread_id.substring(0, 8) }}...</div>
+            <div class="flex items-center justify-between">
+              <div class="font-medium truncate flex-1">{{ thread.thread_id.substring(0, 8) }}...</div>
+              <!-- Status indicator -->
+              <div v-if="isThreadProcessing(thread.thread_id)" class="flex items-center gap-1 ml-2">
+                <span class="animate-pulse text-blue-400">⏳</span>
+                <span class="text-blue-400 text-xs">Thinking...</span>
+              </div>
+              <div v-else class="flex items-center gap-1 ml-2">
+                <span class="text-green-400">✓</span>
+                <span class="text-green-400 text-xs">Clear</span>
+              </div>
+            </div>
             <div class="text-gray-400 text-xs mt-1 truncate">{{ thread.latest_query || 'No messages' }}</div>
           </div>
         </div>
@@ -453,6 +464,11 @@ async function handleDeleteDocument(docId) {
   } catch (error) {
     alert(`Error deleting document: ${error.message}`)
   }
+}
+
+function isThreadProcessing(threadId) {
+  // Check if the thread is currently processing
+  return store.isThreadProcessing(threadId)
 }
 
 // Watch for thread changes to refresh thread list

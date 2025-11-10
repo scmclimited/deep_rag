@@ -67,11 +67,15 @@ class TestNodeRetriever:
     @patch('inference.graph.nodes.retriever.retrieve_hybrid')
     def test_node_retriever_with_selected_doc_ids(self, mock_retrieve):
         """Test retrieval with selected_doc_ids (multi-document selection)."""
-        mock_retrieve.return_value = [
-            {"chunk_id": "1", "text": "Evidence 1", "ce": 0.8, "lex": 0.5, "vec": 0.6, "p0": 1, "p1": 1, "doc_id": "doc1"},
-            {"chunk_id": "2", "text": "Evidence 2", "ce": 0.7, "lex": 0.4, "vec": 0.5, "p0": 2, "p1": 2, "doc_id": "doc2"},
-            {"chunk_id": "3", "text": "Evidence 3", "ce": 0.6, "lex": 0.3, "vec": 0.4, "p0": 3, "p1": 3, "doc_id": "doc3"}
-        ]
+        def mock_retrieve_side_effect(*args, **kwargs):
+            doc_id = kwargs.get('doc_id')
+            if doc_id == "doc1":
+                return [{"chunk_id": "1", "text": "Evidence 1", "ce": 0.8, "lex": 0.5, "vec": 0.6, "p0": 1, "p1": 1, "doc_id": "doc1"}]
+            elif doc_id == "doc2":
+                return [{"chunk_id": "2", "text": "Evidence 2", "ce": 0.7, "lex": 0.4, "vec": 0.5, "p0": 2, "p1": 2, "doc_id": "doc2"}]
+            else:
+                return []
+        mock_retrieve.side_effect = mock_retrieve_side_effect
         
         state: GraphState = {
             "question": "Test question",
@@ -203,12 +207,14 @@ class TestNodeRetriever:
     @patch('inference.graph.nodes.retriever.retrieve_hybrid')
     def test_node_retriever_filters_by_selected_doc_ids(self, mock_retrieve):
         """Test that retriever filters results to only selected doc_ids."""
-        # Mock returns chunks from multiple docs
-        mock_retrieve.return_value = [
-            {"chunk_id": "1", "text": "Evidence 1", "ce": 0.8, "lex": 0.5, "vec": 0.6, "p0": 1, "p1": 1, "doc_id": "doc1"},
-            {"chunk_id": "2", "text": "Evidence 2", "ce": 0.7, "lex": 0.4, "vec": 0.5, "p0": 2, "p1": 2, "doc_id": "doc2"},
-            {"chunk_id": "3", "text": "Evidence 3", "ce": 0.6, "lex": 0.3, "vec": 0.4, "p0": 3, "p1": 3, "doc_id": "doc3"}
-        ]
+        # Mock returns chunks matching the doc_id parameter
+        def mock_retrieve_side_effect(*args, **kwargs):
+            doc_id = kwargs.get('doc_id')
+            if doc_id == "doc1":
+                return [{"chunk_id": "1", "text": "Evidence 1", "ce": 0.8, "lex": 0.5, "vec": 0.6, "p0": 1, "p1": 1, "doc_id": "doc1"}]
+            else:
+                return []
+        mock_retrieve.side_effect = mock_retrieve_side_effect
         
         state: GraphState = {
             "question": "Test question",

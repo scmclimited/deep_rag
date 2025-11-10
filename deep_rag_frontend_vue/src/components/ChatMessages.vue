@@ -34,7 +34,7 @@
           <div v-for="(docId, idx) in message.doc_ids" :key="docId" class="text-xs space-y-1">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="font-mono text-blue-300">{{ docId }}</span>
-              <span v-if="message.doc_title && idx === 0" class="text-gray-400">({{ message.doc_title }})</span>
+              <span v-if="getDocTitle(message, idx)" class="text-gray-400">({{ getDocTitle(message, idx) }})</span>
             </div>
             <div v-if="message.pages && message.pages.length > 0" class="text-gray-400 ml-2">
               📑 Pages: {{ message.pages.join(', ') }}
@@ -107,5 +107,22 @@ function cleanAnswerText(text) {
   if (!text) return text
   // Remove (confidence: X.X%) from citations
   return text.replace(/\(confidence:\s*\d+\.?\d*%\)/gi, '')
+}
+
+function getDocTitle(message, index) {
+  if (!message) return null
+  if (Array.isArray(message.doc_titles) && message.doc_titles[index]) {
+    return message.doc_titles[index]
+  }
+  if (message.doc_title && index === 0) {
+    return message.doc_title
+  }
+  const docId = Array.isArray(message.doc_ids) ? message.doc_ids[index] : null
+  if (!docId) return null
+  const docMeta = store.documents?.find?.(doc => doc.doc_id === docId)
+  if (docMeta?.title) {
+    return docMeta.title
+  }
+  return null
 }
 </script>

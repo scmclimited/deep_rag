@@ -501,6 +501,7 @@ async function sendMessage() {
       doc_id: response.doc_id,
       doc_ids: responseDocIds,
       doc_title: response.doc_title,
+      doc_titles: Array.isArray(response.doc_titles) ? [...response.doc_titles] : null,
       pages: response.pages || [],
       confidence: response.confidence,
       action: response.action

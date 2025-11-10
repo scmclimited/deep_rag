@@ -1,17 +1,32 @@
 """
 Chunk database operations.
 """
+
+# pyright: reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false
+# pyright: reportUnknownArgumentType=false
+# pyright: reportUnknownParameterType=false
+# pyright: reportMissingTypeArgument=false
+# pyright: reportUnknownLambdaType=false
+# pyright: reportMissingImports=false
 import logging
 from uuid import uuid4
-from typing import List, Tuple, Optional
-import psycopg2.extras as pe
+from typing import List, Tuple, Optional, Any
+
+try:
+    from psycopg2.extras import Json  # type: ignore[reportMissingImports]
+except ImportError:  # pragma: no cover
+    class Json(dict):  # type: ignore[override]
+        """Fallback Json wrapper when psycopg2 is unavailable."""
+        def __init__(self, value: Any):
+            super().__init__(value)
 
 from ingestion.embeddings import embed_text, embed_image, embed_multi_modal
 
 logger = logging.getLogger(__name__)
 
 
-def upsert_chunks(cur, doc_id: str, chunks: List[Tuple], temp_dir: Optional[str] = None) -> None:
+def upsert_chunks(cur: Any, doc_id: str, chunks: List[Tuple], temp_dir: Optional[str] = None) -> None:
     """
     Insert chunks into database with multi-modal embeddings.
     
@@ -38,14 +53,39 @@ def upsert_chunks(cur, doc_id: str, chunks: List[Tuple], temp_dir: Optional[str]
             
             # Generate embedding based on content type
             try:
-                if content_type in ['multimodal', 'pdf_image'] and image is not None:
-                    # Multi-modal: embed text + image together
-                    emb = embed_multi_modal(text=text, image_path=image, normalize_emb=True)
-                elif content_type == 'image' and image is not None:
-                    # Image only
-                    emb = embed_image(image, normalize_emb=True)
+                if content_type == 'multimodal' and image is not None and text:
+                    try:
+                        emb = embed_multi_modal(text=text, image_path=image, normalize_emb=True)
+                    except Exception as mm_err:
+                        logger.warning(
+                            "Falling back to text embedding for chunk %s due to multi-modal failure: %s",
+                            chunk_index,
+                            mm_err,
+                            exc_info=True,
+                        )
+                        emb = embed_text(text, normalize_emb=True)
+                        content_type = 'pdf_text'
+                        image = None
+                        image_path = None
+                elif content_type in ['pdf_image', 'image'] and image is not None:
+                    try:
+                        emb = embed_image(image, normalize_emb=True)
+                    except Exception as img_err:
+                        logger.warning(
+                            "Image embedding failed for chunk %s (%s); falling back to text embedding if available: %s",
+                            chunk_index,
+                            content_type,
+                            img_err,
+                            exc_info=True,
+                        )
+                        if text:
+                            emb = embed_text(text, normalize_emb=True)
+                            content_type = 'pdf_text'
+                            image = None
+                            image_path = None
+                        else:
+                            raise
                 else:
-                    # Text only
                     emb = embed_text(text, normalize_emb=True)
             except Exception as e:
                 logger.error(f"Failed to generate embedding for chunk {chunk_index}: {e}", exc_info=True)
@@ -67,7 +107,7 @@ def upsert_chunks(cur, doc_id: str, chunks: List[Tuple], temp_dir: Optional[str]
                 cid, doc_id, p0, p1, None, text,
                 is_ocr, is_fig, content_type, image_path,
                 text, emb.tolist(), 
-                pe.Json({"len": len(text), "content_type": content_type})
+                Json({"len": len(text), "content_type": content_type})
             ))
             
             logger.info(

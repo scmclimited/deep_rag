@@ -336,8 +336,11 @@ def node_synthesizer(state: GraphState) -> GraphState:
         overlap = doc_question_overlap.get(doc_ref, 0)
 
         include = False
+        # Only include explicit docs if they have some retrieval signal
         if doc_ref in explicit_docs:
-            include = True
+            # Still require some evidence of relevance (overlap or decent score)
+            if overlap > 0 or score_ratio >= 0.4:
+                include = True
         elif overlap > 0:
             include = True
         elif score_ratio >= 0.55:
@@ -427,23 +430,61 @@ def node_synthesizer(state: GraphState) -> GraphState:
 
     context = "\n\n---\n\n".join(context_sections)
     order_block = f"{doc_order_instruction}\n\n" if doc_order_instruction else ""
-    instructions = [
-        "Answer using ONLY the supplied context.",
-        "Do NOT invent documents or details that are not grounded in the context.",
-        "Reference each document only if you actually use its information.",
-    ]
-    if len(doc_order_for_prompt) > 1:
-        instructions.append("Organize your answer following the document order listed below.")
-        instructions.append("Make it explicit when you transition between documents.")
-    base_instructions = "\n".join(f"- {line}" for line in instructions)
 
-    prompt = (
-        f"{order_block}{base_instructions}\n\nQuestion: {question_text}\n\nContext:\n{context}\n"
+    doc_context = ""
+    if doc_id:
+        doc_context = "\n\nNote: Focus your answer on the identified document."
+
+    question_lower = question_text.lower()
+    is_content_request = any(
+        phrase in question_lower
+        for phrase in [
+            "share the contents",
+            "what is in",
+            "what are in",
+            "contents of",
+            "summarize these",
+            "tell me about these",
+            "describe these",
+        ]
     )
+    is_multi_doc_query = len(selected_doc_ids) > 1
+
+    if action == "clarify":
+        prompt = f"""{order_block}Using ONLY the context, summarize cautiously in 1–3 sentences.\nIf the answer is incomplete, say what's missing.\nDo NOT add bracket citations or reference numbers in your response.{doc_context}\n\nQuestion: {question_text}\n\nContext:\n{context}\n"""
+    elif is_content_request and is_multi_doc_query:
+        prompt = f"""You are analyzing {len(selected_doc_ids)} documents. Provide a comprehensive summary of each document's key information.\n\n
+        CRITICAL INSTRUCTIONS:\n- Extract and present the main content, key points, and important details from EACH document no matter how small the detail may seem.\n-
+        You must maintain the document order listed below exactly.
+        You must make it explicit when you transition between documents.
+        You must include specific information like names, dates, numbers, and key facts.
+        You must use proper nouns and pronouns correctly.
+        You must be thorough and detailed - the user wants comprehensive information about ALL documents.
+        You must NOT say you cannot share contents - you CAN and SHOULD summarize the key information.
+        You must if the context lacks information needed to answer any portion of the request, reply exactly with "I don't know." and nothing else.
+        You must NOT add bracket citations or reference numbers - citations will be added automatically.
+        Organize your answer by document (e.g., "Document 1 contains...", "Document 2 discusses...")\n- 
+        Follow the document order listed below exactly\n- 
+        Be thorough and detailed - the user wants comprehensive information about ALL documents\n- 
+        Do NOT say you cannot share contents - you CAN and SHOULD summarize the key information\n- 
+        If the context lacks information needed to answer any portion of the request, reply exactly with "I don't know." and nothing else\n- 
+        Do NOT add bracket citations or reference numbers - citations will be added automatically\n\n{order_block}Question: {question_text}{doc_context}\n\nContext from {len(selected_doc_ids)} documents:\n{context}\n"""
+    else:
+        prompt = f"""Answer the question using ONLY the context provided.\n\n
+        CRITICAL INSTRUCTIONS:\n- If insufficient evidence exists, say "I don't know."\n-
+        You must include specific information like names, dates, numbers, and key facts.
+        You must use proper nouns and pronouns correctly.\m- 
+        Your refusal must be exactly "I don't know." with no extra text when the answer cannot be determined from the context.\n- 
+        Do NOT add bracket citations or reference numbers in your response - citations will be added automatically.\n- 
+        Do NOT describe or mention documents that are not directly relevant to answering the question.\n- 
+        Do NOT fabricate relationships between documents unless explicitly stated in the context.\n- 
+        Focus ONLY on information that directly answers the question.\n- 
+        If the context contains multiple documents, only discuss those that are actually relevant to the answer\n- 
+        Follow the document order listed (if provided) when structuring your answer.\n\n{order_block}Provide a clear, direct answer based on the context.{doc_context}\n\nQuestion: {question_text}\n\nContext:\n{context}\n"""
 
     logger.info("Invoking LLM for synthesis")
     llm_response = call_llm(
-        "You write precise, grounded answers. Avoid speculation and keep sources aligned.",
+        "You write precise, grounded answers. Avoid speculation and keep sources aligned. Answer with I dont know if you cannot ground your answer.",
         [{"role": "user", "content": prompt}],
         max_tokens=1500,
         temperature=0.2,
@@ -451,7 +492,30 @@ def node_synthesizer(state: GraphState) -> GraphState:
     answer_text = llm_response.strip()
     normalized_answer = _normalize_for_match(answer_text)
 
-    negative_response = normalized_answer.startswith("i dont know") or normalized_answer.startswith("i do not know") or normalized_answer.startswith("i don't know")
+    negative_response_patterns = [
+        "does not contain the answer",
+        "does not contain the name",
+        "does not contain the information",
+        "does not provide the answer",
+        "no answer is available",
+        "no relevant information",
+        "cannot determine from the document",
+        "cannot find this information",
+        "not provided in the document",
+        "document does not provide",
+        "document does not mention",
+        "i am an ai and do not have emotions",
+        "i am an ai language model",
+        "not enough information in the document",
+        "context does not contain",
+        "no supportive evidence in the context",
+    ]
+    negative_response = (
+        normalized_answer.startswith("i dont know")
+        or normalized_answer.startswith("i do not know")
+        or normalized_answer.startswith("i don't know")
+        or any(pattern in normalized_answer for pattern in negative_response_patterns)
+    )
     if negative_response:
         logger.info("LLM response indicates lack of knowledge - clearing sources")
         cleared_result: Dict[str, Any] = {
@@ -499,13 +563,9 @@ def node_synthesizer(state: GraphState) -> GraphState:
                 overlap,
             )
 
+    # Don't add fallback document if none verified - better to have no citations than wrong ones
     if not verified_docs and top_doc_ids:
-        fallback_doc = max(top_doc_ids, key=lambda doc: (
-            doc_question_overlap.get(doc, 0),
-            doc_stats[doc]["score"],
-        ))
-        logger.info("No documents verified via answer match; falling back to %s", fallback_doc[:8] + "...")
-        verified_docs = [fallback_doc]
+        logger.info("No documents verified via answer match - clearing citations to avoid irrelevant sources")
 
     if verified_docs:
         verified_docs = sorted(verified_docs, key=order_key)

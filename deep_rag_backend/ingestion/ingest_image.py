@@ -6,10 +6,13 @@ import os
 import logging
 from dotenv import load_dotenv
 import psycopg2, psycopg2.extras as pe
+from typing import Any, List, Optional, Sequence, Tuple
+
+IMAGE_AVAILABLE = False
 
 try:
-    from PIL import Image
-    import pytesseract
+    from PIL import Image  # type: ignore[import-not-found]
+    import pytesseract  # type: ignore[import-not-found]
     # Note: pdf2image is only used in ingest.py for PDF OCR, not needed for image ingestion
     IMAGE_AVAILABLE = True
 except ImportError:
@@ -49,16 +52,17 @@ def extract_text_from_image(image_path: str) -> str:
         logger.warning(f"OCR extraction failed: {e}. Using fallback description.")
         return f"[Image file: {Path(image_path).name}]\n[OCR extraction failed. Image may contain visual content.]"
 
-def upsert_document(cur, title, path):
-    """Insert or update document record."""
-    did = uuid4()
+def upsert_document(cur: Any, title: str, path: str, content_hash: Optional[str] = None) -> str:
+    """Insert document record with optional content hash."""
+    did = str(uuid4())
     cur.execute(
-        "INSERT INTO documents (doc_id, title, source_path) VALUES (%s,%s,%s)",
-        (str(did), title, path)
+        "INSERT INTO documents (doc_id, title, source_path, content_hash) VALUES (%s,%s,%s,%s)",
+        (did, title, path, content_hash)
     )
-    return str(did)
+    return did
 
-def upsert_chunks(cur, doc_id, chunks):
+
+def upsert_chunks(cur: Any, doc_id: str, chunks: Sequence[Tuple[Any, ...]]) -> None:
     """Insert chunks with embeddings."""
     logger.info(f"Upserting {len(chunks)} chunks for image document {doc_id}")
     
@@ -99,7 +103,7 @@ def upsert_chunks(cur, doc_id, chunks):
     
     logger.info(f"Successfully upserted {len(chunks)} chunks for image document {doc_id}")
 
-def ingest_image(image_path: str, title: str = None):
+def ingest_image(image_path: str, title: Optional[str] = None) -> str:
     """
     Ingest an image file (PNG, JPEG) into the vector database.
     

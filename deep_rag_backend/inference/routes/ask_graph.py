@@ -124,8 +124,10 @@ def ask_graph(body: AskGraphBody) -> Dict[str, Any]:
         doc_id_value = result.get("doc_id")
         doc_id: Optional[str] = doc_id_value if isinstance(doc_id_value, str) else body.doc_id
         doc_title = None
+        doc_titles_map: Dict[str, Optional[str]] = {}
         if doc_id:
             doc_title = get_document_title(doc_id)
+            doc_titles_map[doc_id] = doc_title
         
         # Get doc_ids and pages from result
         doc_ids_raw = result.get("doc_ids", [])
@@ -137,6 +139,15 @@ def ask_graph(body: AskGraphBody) -> Dict[str, Any]:
         if not doc_id and doc_ids:
             doc_id = doc_ids[0]
             doc_title = get_document_title(doc_id) if doc_id else None
+            if doc_id:
+                doc_titles_map[doc_id] = doc_title
+        
+        doc_titles: List[Optional[str]] = []
+        if len(doc_ids) > 1:
+            for doc_identifier in doc_ids:
+                if doc_identifier not in doc_titles_map:
+                    doc_titles_map[doc_identifier] = get_document_title(doc_identifier)
+                doc_titles.append(doc_titles_map.get(doc_identifier))
         
         # Log thread interaction to database (synchronous operation, but FastAPI handles it)
         try:
@@ -168,6 +179,7 @@ def ask_graph(body: AskGraphBody) -> Dict[str, Any]:
             "doc_id": doc_id,
             "doc_ids": doc_ids,  # All doc_ids used
             "doc_title": doc_title,
+            "doc_titles": doc_titles if doc_titles else None,
             "pages": pages,  # Page references
             "cross_doc": body.cross_doc
         }

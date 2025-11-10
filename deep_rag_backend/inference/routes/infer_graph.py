@@ -201,8 +201,10 @@ async def infer_graph(
         # Get document title if doc_id is available
         final_doc_id = result.get("doc_id") or doc_id
         doc_title = None
+        doc_titles_map: Dict[str, Optional[str]] = {}
         if final_doc_id:
             doc_title = get_document_title(final_doc_id)
+            doc_titles_map[final_doc_id] = doc_title
         
         # Get doc_ids and pages from result
         doc_ids = result.get("doc_ids", [])
@@ -212,6 +214,16 @@ async def infer_graph(
         if not final_doc_id and doc_ids:
             final_doc_id = doc_ids[0]
             doc_title = get_document_title(final_doc_id) if final_doc_id else None
+            if final_doc_id:
+                doc_titles_map[final_doc_id] = doc_title
+        
+        # Collect titles for all reported doc_ids (preserving order)
+        doc_titles: List[Optional[str]] = []
+        if len(doc_ids) > 1:
+            for doc_identifier in doc_ids:
+                if doc_identifier not in doc_titles_map:
+                    doc_titles_map[doc_identifier] = get_document_title(doc_identifier)
+                doc_titles.append(doc_titles_map.get(doc_identifier))
         
         # Log thread interaction to database (synchronous operation, but FastAPI handles it)
         try:
@@ -257,6 +269,7 @@ async def infer_graph(
             "doc_id": None if is_abstain else final_doc_id,
             "doc_ids": [] if is_abstain else doc_ids,  # Clear doc_ids for abstain
             "doc_title": None if is_abstain else doc_title,
+            "doc_titles": [] if is_abstain else (doc_titles if doc_titles else None),
             "pages": [] if is_abstain else pages,  # Clear pages for abstain
             "cross_doc": cross_doc
         }

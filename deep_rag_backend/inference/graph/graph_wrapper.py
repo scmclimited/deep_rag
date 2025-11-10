@@ -101,8 +101,14 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
     logger.info("-" * 40)
     logger.info("LANGRAPH PIPELINE COMPLETED")
     logger.info("-" * 40)
-    logger.info(f"Final Confidence: {resp.get('confidence', 0.0):.2f}")
-    logger.info(f"Total Iterations: {resp.get('iterations', 0)}")
+    final_confidence = resp.get('confidence', 0.0)
+    iterations = resp.get('iterations', 0)
+    refinements = resp.get('refinements', [])
+    logger.info(f"User-facing confidence (percentage): {final_confidence:.2f}%")
+    logger.info(f"Total Iterations Executed: {iterations}")
+    logger.info(f"Refinement prompts issued: {len(refinements)}")
+    if refinements:
+        logger.info(f"Refinement history: {refinements}")
     logger.info(f"Total Evidence Chunks: {len(resp.get('evidence', []))}")
     
     # Log page distribution in final evidence
@@ -156,6 +162,8 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
         final_doc_ids = [doc for doc in doc_ids_to_use if doc][:max_docs_to_report]
 
     primary_doc_id = final_doc_ids[0] if final_doc_ids else None
+    logger.info(f"Document ranking (top {max_docs_to_report}): {final_doc_ids}")
+    logger.info(f"Final graph action: {resp.get('action', 'answer')} with iterations={iterations}")
 
     answer_text = resp.get("answer", "")
     normalized_answer = unicodedata.normalize("NFKD", answer_text or "")
@@ -165,13 +173,22 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
         if normalized_answer
         else ""
     )
-    if (
-        answer_normalized.startswith("i don't know")
-        or answer_normalized.startswith("i do not know")
-        or "i don't know" in answer_normalized.splitlines()[0]
-        or answer_ascii.startswith("i dont know")
-        or "i dont know" in answer_ascii.splitlines()[0]
-    ):
+    # Also check action for abstain
+    action = resp.get("action", "answer")
+    
+    is_abstain = (
+        action == "abstain" or
+        answer_normalized.startswith("i don't know") or
+        answer_normalized.startswith("i do not know") or
+        ("i don't know" in answer_normalized.splitlines()[0] if answer_normalized.splitlines() else False) or
+        answer_ascii.startswith("i dont know") or
+        ("i dont know" in answer_ascii.splitlines()[0] if answer_ascii.splitlines() else False) or
+        answer_normalized == "i don't know." or
+        answer_ascii == "i dont know."
+    )
+    
+    if is_abstain:
+        logger.info("Detected abstain response - clearing all sources")
         final_doc_ids = []
         primary_doc_id = None
         pages = []

@@ -71,7 +71,7 @@ up:
 	@echo "Services started. Waiting for services to be ready..."
 	@sleep 5
 	@echo "Services available at:"
-	@echo "  - Frontend: http://localhost:8501"
+	@echo "  - Frontend: http://localhost:5173"
 	@echo "  - Backend API: http://localhost:8000"
 	@echo "  - Database: localhost:5432"
 	@echo ""

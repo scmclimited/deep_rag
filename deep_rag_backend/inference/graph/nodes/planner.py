@@ -13,6 +13,7 @@ agent_log = get_agent_logger()
 def node_planner(state: GraphState) -> GraphState:
     logger.info("-" * 40)
     logger.info("GRAPH NODE: Planner - Decomposing question into sub-goals")
+    logger.info(f"State snapshot → iterations={state.get('iterations', 0)}, doc_id={state.get('doc_id')}")
     logger.info("-" * 40)
     logger.info(f"Question: {state['question']}")
     doc_id = state.get('doc_id')

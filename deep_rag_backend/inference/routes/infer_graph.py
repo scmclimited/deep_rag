@@ -5,7 +5,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from inference.graph.graph_wrapper import ask_with_graph
 from ingestion.ingest import ingest as ingest_pdf
@@ -23,7 +23,8 @@ router = APIRouter()
 @router.post("/infer-graph")
 async def infer_graph(
     question: str = Form(...),
-    attachment: Optional[UploadFile] = File(None),
+    attachments: Optional[List[UploadFile]] = File(None),
+    attachment: Optional[UploadFile] = File(None),  # Backward compatibility for single attachment clients
     title: Optional[str] = Form(None),
     thread_id: Optional[str] = Form("default"),
     user_id: Optional[str] = Form(None),  # User ID for thread tracking
@@ -45,56 +46,87 @@ async def infer_graph(
     - TXT: Direct text ingestion
     - PNG/JPEG: Image captioning (extracts text via OCR/vision)
     """
-    file_ext = None
-    content_type = None
-    doc_id = None  # Initialize doc_id outside the attachment block
+    thread_id_value = thread_id or "default"
+    uploaded_doc_ids: List[str] = []
+    attachment_metadata: List[Dict[str, Any]] = []
+    attachments_list: List[UploadFile] = []
+    if attachments:
+        attachments_list.extend([item for item in attachments if item is not None])
+    if attachment:
+        attachments_list.append(attachment)
+    # Deduplicate while preserving order (FormData may pass same object twice)
+    unique_attachments: List[UploadFile] = []
+    seen_ids = set()
+    for upload in attachments_list:
+        if upload is None:
+            continue
+        key = id(upload)
+        if key in seen_ids:
+            continue
+        seen_ids.add(key)
+        unique_attachments.append(upload)
+    attachments_list = unique_attachments
+    doc_id = None  # Primary doc_id for backward compatibility
     
     try:
-        # Process attachment if provided
-        if attachment:
-            file_ext = Path(attachment.filename).suffix.lower() if attachment.filename else ""
-            content_type = attachment.content_type or ""
-            
+        # Process attachments if provided
+        if attachments_list:
+            logger.info(f"Ingesting {len(attachments_list)} attachment(s)")
+        for idx, upload in enumerate(attachments_list):
+            file_ext = Path(upload.filename).suffix.lower() if upload.filename else ""
+            content_type = upload.content_type or ""
+            tmp_path = None
+            generated_doc_id = None
+
             # Save uploaded file temporarily
             with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp_file:
-                content = await attachment.read()
+                content = await upload.read()
                 tmp_file.write(content)
                 tmp_path = tmp_file.name
-            
+
             try:
-                # Process based on file type
+                title_to_use = title if title and len(attachments_list) == 1 else (upload.filename or title or "Uploaded Document")
+                if not title_to_use:
+                    title_to_use = "Uploaded Document"
+
                 if file_ext in ['.pdf'] or 'pdf' in content_type:
-                    doc_id = ingest_pdf(tmp_path, title=title)
-                    logger.info(f"✅ Ingested PDF: {attachment.filename}")
-                    logger.info(f"📋 Document ID: {doc_id}")
-                    
+                    generated_doc_id = ingest_pdf(tmp_path, title=title_to_use)
+                    logger.info(f"✅ Ingested PDF ({idx + 1}/{len(attachments_list)}): {upload.filename}")
+
                 elif file_ext in ['.txt'] or 'text/plain' in content_type:
-                    doc_id = ingest_text_file(tmp_path, title=title or attachment.filename)
-                    logger.info(f"✅ Ingested text file: {attachment.filename}")
-                    logger.info(f"📋 Document ID: {doc_id}")
-                    
+                    generated_doc_id = ingest_text_file(tmp_path, title=title_to_use)
+                    logger.info(f"✅ Ingested text file ({idx + 1}/{len(attachments_list)}): {upload.filename}")
+
                 elif file_ext in ['.png', '.jpg', '.jpeg'] or 'image' in content_type:
-                    doc_id = ingest_image(tmp_path, title=title or attachment.filename)
-                    logger.info(f"✅ Ingested image: {attachment.filename}")
-                    logger.info(f"📋 Document ID: {doc_id}")
-                    
+                    generated_doc_id = ingest_image(tmp_path, title=title_to_use)
+                    logger.info(f"✅ Ingested image ({idx + 1}/{len(attachments_list)}): {upload.filename}")
+
                 else:
                     raise HTTPException(
                         status_code=400,
                         detail=f"Unsupported file type: {file_ext}. Supported: PDF, TXT, PNG, JPEG"
                     )
-                
-                # Wait for chunks to be available before querying
-                if doc_id:
-                    logger.info(f"Waiting for chunks for document {doc_id}...")
+
+                if generated_doc_id:
+                    uploaded_doc_ids.append(generated_doc_id)
+                    attachment_metadata.append({
+                        "filename": upload.filename,
+                        "file_type": file_ext or content_type,
+                        "doc_id": generated_doc_id,
+                        "title": title_to_use
+                    })
+                    if doc_id is None:
+                        doc_id = generated_doc_id  # Preserve first doc_id for backward compatibility
+
+                    logger.info(f"📋 Document ID: {generated_doc_id}")
+                    logger.info(f"Waiting for chunks for document {generated_doc_id}...")
                     try:
-                        chunk_count = wait_for_chunks(doc_id, max_wait_seconds=40)
-                        logger.info(f"Found {chunk_count} chunks, ready to query")
+                        chunk_count = wait_for_chunks(generated_doc_id, max_wait_seconds=40)
+                        logger.info(f"Found {chunk_count} chunks for {generated_doc_id}, ready to query")
                     except TimeoutError as e:
-                        logger.warning(f"Timeout waiting for chunks: {e}. Proceeding anyway.")
+                        logger.warning(f"Timeout waiting for chunks for {generated_doc_id}: {e}. Proceeding anyway.")
             finally:
-                # Clean up temp file
-                if os.path.exists(tmp_path):
+                if tmp_path and os.path.exists(tmp_path):
                     os.unlink(tmp_path)
         
         # Parse selected_doc_ids if provided (JSON string)
@@ -110,19 +142,17 @@ async def infer_graph(
                 selected_doc_ids_list = None
         
         # Determine which doc_ids to use for retrieval
-        # Priority: selected_doc_ids (explicit user selection) > doc_id from upload (if attachment)
-        # If both are provided, combine them (user may have selected other docs in addition to uploaded doc)
-        doc_ids_to_use = None
+        # Priority: selected_doc_ids (explicit user selection) > doc_ids from upload
+        doc_ids_to_use: Optional[List[str]] = None
         if selected_doc_ids_list is not None:
             # User explicitly provided selected_doc_ids (could be empty list)
             if len(selected_doc_ids_list) > 0:
                 doc_ids_to_use = list(selected_doc_ids_list)  # Make a copy to avoid modifying original
-                
-                # If doc_id from upload is also provided and not already in selected_doc_ids, add it
-                # This handles the case where user uploaded a doc AND selected other docs
-                if doc_id and doc_id not in doc_ids_to_use:
-                    doc_ids_to_use.append(doc_id)
-                    logger.info(f"Combining selected_doc_ids with uploaded doc_id: {len(doc_ids_to_use)} document(s) total")
+                if uploaded_doc_ids:
+                    for uploaded_doc_id in uploaded_doc_ids:
+                        if uploaded_doc_id and uploaded_doc_id not in doc_ids_to_use:
+                            doc_ids_to_use.append(uploaded_doc_id)
+                    logger.info(f"Combining selected_doc_ids with uploaded doc_ids: {len(doc_ids_to_use)} document(s) total")
                 else:
                     logger.info(f"Using selected_doc_ids: {len(doc_ids_to_use)} document(s)")
             else:
@@ -130,23 +160,24 @@ async def infer_graph(
                 # Don't use doc_id from upload if user explicitly deselected
                 doc_ids_to_use = None
                 logger.info("selected_doc_ids is empty - not filtering to any documents (user deselected all)")
-        elif doc_id and attachment:
-            # If uploading a document and no selected_doc_ids provided, use that doc_id for the first query
-            # (user hasn't had a chance to select it yet)
-            doc_ids_to_use = [doc_id]
-            logger.info(f"Using doc_id from upload: {doc_id}...")
+        elif uploaded_doc_ids:
+            doc_ids_to_use = [doc for doc in uploaded_doc_ids if doc]
+            if doc_ids_to_use:
+                logger.info(f"Using uploaded doc_ids for retrieval: {doc_ids_to_use}")
         elif doc_id:
-            # If doc_id provided but no attachment, use it (backward compatibility)
+            # Fallback to primary doc_id for backward compatibility when no uploads recorded
             doc_ids_to_use = [doc_id]
             logger.info(f"Using doc_id: {doc_id}...")
+
+        doc_id_for_graph = doc_ids_to_use[0] if doc_ids_to_use else None
         
         # Run the query with LangGraph
         if cross_doc:
             logger.info("Cross-document retrieval enabled")
         result = ask_with_graph(
-            question, 
-            thread_id=thread_id, 
-            doc_id=doc_id,  # Keep for backward compatibility
+            question,
+            thread_id=thread_id_value,
+            doc_id=doc_id_for_graph,  # Keep for backward compatibility
             selected_doc_ids=doc_ids_to_use,  # Use selected_doc_ids if provided
             cross_doc=cross_doc
         )
@@ -171,16 +202,13 @@ async def infer_graph(
             user_id_for_logging = user_id or "default_user"
             logger.info(f"infer_graph: Logging thread interaction with user_id='{user_id_for_logging}' (from Form user_id='{user_id}')")
             ingestion_meta = None
-            if attachment:
+            if attachment_metadata:
                 ingestion_meta = {
-                    "filename": attachment.filename,
-                    "file_type": file_ext or content_type,
-                    "doc_id": final_doc_id,
-                    "title": title
+                    "attachments": attachment_metadata
                 }
             record_id = log_thread_interaction(
                 user_id=user_id_for_logging,
-                thread_id=thread_id,
+                thread_id=thread_id_value,
                 query_text=question,
                 doc_ids=doc_ids or ([final_doc_id] if final_doc_id else []),
                 final_answer=result.get("answer", ""),
@@ -199,12 +227,13 @@ async def infer_graph(
             "answer": result.get("answer", ""),
             "confidence": result.get("confidence", 0.0),
             "action": result.get("action", "answer"),
-            "mode": "ingest_and_query" if attachment else "query_only",
+            "mode": "ingest_and_query" if attachments_list else "query_only",
             "pipeline": "langgraph",
-            "thread_id": thread_id,
-            "attachment_processed": attachment is not None,
-            "filename": attachment.filename if attachment else None,
-            "file_type": file_ext or content_type if attachment else None,
+            "thread_id": thread_id_value,
+            "attachment_processed": len(attachments_list) > 0,
+            "filenames": [meta["filename"] for meta in attachment_metadata] if attachment_metadata else None,
+            "file_types": [meta["file_type"] for meta in attachment_metadata] if attachment_metadata else None,
+            "uploaded_doc_ids": uploaded_doc_ids if uploaded_doc_ids else None,
             "doc_id": final_doc_id,
             "doc_ids": doc_ids,  # All doc_ids used
             "doc_title": doc_title,

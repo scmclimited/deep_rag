@@ -808,13 +808,13 @@ curl -X POST http://localhost:5173/api/ask-graph \
 ```bash
 curl -X POST http://localhost:5173/api/infer \
   -F "question=What does this document say about RAG systems?" \
-  -F "attachment=@path/to/file.pdf" \
+  -F "attachments=@path/to/file.pdf" \
   -F "title=Optional Title"
 
 # With cross-doc enabled
 curl -X POST http://localhost:5173/api/infer \
   -F "question=What does this document say about RAG systems?" \
-  -F "attachment=@path/to/file.pdf" \
+  -F "attachments=@path/to/file.pdf" \
   -F "title=Optional Title" \
   -F "cross_doc=true"
 ```
@@ -823,7 +823,7 @@ curl -X POST http://localhost:5173/api/infer \
 ```bash
 curl -X POST http://localhost:5173/api/infer-graph \
   -F "question=What are the key requirements for this RAG system?" \
-  -F "attachment=@path/to/file.pdf" \
+  -F "attachments=@path/to/file.pdf" \
   -F "title=Optional Title" \
   -F "thread_id=session-1"
 ```

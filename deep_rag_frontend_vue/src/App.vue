@@ -26,18 +26,33 @@
       :class="{ 'pointer-events-none': showMobileToggle && sidebarExpanded }"
     >
       <ChatHeader />
-      <ChatMessages />
-      <ChatInput />
+      <!-- Per-thread view with KeepAlive to cache component instances -->
+      <KeepAlive :max="10">
+        <ThreadView 
+          v-if="store.currentThreadId" 
+          :key="store.currentThreadId"
+          :threadId="store.currentThreadId"
+        />
+      </KeepAlive>
+      <!-- Welcome screen when no thread is active -->
+      <div v-if="!store.currentThreadId" class="flex-1 flex items-center justify-center">
+        <div class="text-center">
+          <h2 class="text-2xl font-bold mb-4">👋 Welcome to Deep RAG Chat</h2>
+          <p class="text-gray-400">Start a conversation by asking a question or uploading a document</p>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, KeepAlive } from 'vue'
+import { useAppStore } from './stores/app'
 import Sidebar from './components/Sidebar.vue'
 import ChatHeader from './components/ChatHeader.vue'
-import ChatMessages from './components/ChatMessages.vue'
-import ChatInput from './components/ChatInput.vue'
+import ThreadView from './components/ThreadView.vue'
+
+const store = useAppStore()
 
 const sidebarExpanded = ref(false)
 const showMobileToggle = ref(false)

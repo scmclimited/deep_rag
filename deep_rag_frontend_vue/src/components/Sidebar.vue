@@ -56,10 +56,21 @@
             v-for="thread in threadsList"
             :key="thread.thread_id"
             @click="switchToThread(thread.thread_id)"
-            class="p-2 bg-dark-bg rounded border border-dark-border hover:border-blue-500 cursor-pointer text-xs transition-colors"
+            class="p-2 bg-dark-bg rounded border border-dark-border hover:border-blue-500 cursor-pointer text-xs transition-colors relative"
             :class="{ 'border-blue-500 bg-blue-900/20': thread.thread_id === store.currentThreadId }"
           >
-            <div class="font-medium truncate">{{ thread.thread_id.substring(0, 8) }}...</div>
+            <div class="flex items-center justify-between">
+              <div class="font-medium truncate flex-1">{{ thread.thread_id.substring(0, 8) }}...</div>
+              <!-- Status indicator -->
+              <div v-if="isThreadProcessing(thread.thread_id)" class="flex items-center gap-1 ml-2">
+                <span class="animate-pulse text-blue-400">⏳</span>
+                <span class="text-blue-400 text-xs">Thinking...</span>
+              </div>
+              <div v-else class="flex items-center gap-1 ml-2">
+                <span class="text-green-400">✓</span>
+                <span class="text-green-400 text-xs">Clear</span>
+              </div>
+            </div>
             <div class="text-gray-400 text-xs mt-1 truncate">{{ thread.latest_query || 'No messages' }}</div>
           </div>
         </div>
@@ -316,12 +327,19 @@ async function handleCreateNewThread() {
 async function switchToThread(threadId) {
   console.log('switchToThread: Switching to thread:', threadId)
   try {
-    // Always load thread history when switching (even if cached)
+    // Switch thread first (this preserves current thread state)
     store.switchThread(threadId)
-    console.log('switchToThread: Store switched to thread, loading history')
-    // Load thread history to ensure it's up to date
-    await loadThreadHistory(threadId)
-    console.log('switchToThread: Thread history loaded successfully')
+    console.log('switchToThread: Store switched to thread')
+    
+    // Only load from API if thread is persisted
+    const threadEntry = store.threads?.[threadId]
+    if (threadEntry && threadEntry.persisted !== false) {
+      console.log('switchToThread: Loading thread history from API')
+      await loadThreadHistory(threadId)
+      console.log('switchToThread: Thread history loaded successfully')
+    } else {
+      console.log('switchToThread: Thread not persisted yet, using local cache')
+    }
   } catch (error) {
     console.error('switchToThread: Error switching thread:', error)
   }
@@ -339,7 +357,7 @@ async function loadThreadHistory(threadId) {
   }
   try {
     const result = await apiService.getThread(threadId, store.userId)
-    if (result?.messages) {
+    if (result?.messages !== undefined) {
       // Update thread in store (always, regardless of active state)
       if (!store.threads[threadId]) {
         store.threads[threadId] = {
@@ -351,11 +369,25 @@ async function loadThreadHistory(threadId) {
       } else {
         store.threads[threadId].persisted = true
       }
-      // Always update thread messages in store
-      store.threads[threadId].messages = result.messages
-      // Also update current messages if this is the active thread
-      if (store.currentThreadId === threadId) {
-        store.messages = [...result.messages]
+      
+      // Only overwrite local messages if backend has MORE messages than local
+      // This prevents losing local messages when backend hasn't synced yet
+      const localMessages = store.threads[threadId].messages || []
+      const backendMessages = result.messages || []
+      
+      if (backendMessages.length > localMessages.length) {
+        // Backend has more messages - use backend (it's more up-to-date)
+        console.log(`loadThreadHistory: Backend has ${backendMessages.length} messages, local has ${localMessages.length}, using backend`)
+        store.threads[threadId].messages = backendMessages
+        if (store.currentThreadId === threadId) {
+          store.messages = [...backendMessages]
+        }
+      } else {
+        // Keep local messages if they're equal or more than backend
+        console.log(`loadThreadHistory: Keeping ${localMessages.length} local messages, backend has ${backendMessages.length}`)
+        if (store.currentThreadId === threadId) {
+          store.messages = [...localMessages]
+        }
       }
     }
   } catch (error) {
@@ -432,6 +464,11 @@ async function handleDeleteDocument(docId) {
   } catch (error) {
     alert(`Error deleting document: ${error.message}`)
   }
+}
+
+function isThreadProcessing(threadId) {
+  // Check if the thread is currently processing
+  return store.isThreadProcessing(threadId)
 }
 
 // Watch for thread changes to refresh thread list

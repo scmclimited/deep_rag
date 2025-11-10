@@ -13,6 +13,12 @@ agent_log = get_agent_logger()
 def node_retriever(state: GraphState) -> GraphState:
     logger.info("-" * 40)
     logger.info("GRAPH NODE: Retriever - Fetching relevant chunks")
+    logger.info(
+        "State snapshot → iterations=%s, cross_doc=%s, selected_doc_ids=%s",
+        state.get('iterations', 0),
+        state.get('cross_doc', False),
+        state.get('selected_doc_ids'),
+    )
     logger.info("-" * 40)
     q = f"{state['question']}  {state.get('plan','')}"
     

@@ -1,11 +1,11 @@
 <template>
   <div class="flex-1 overflow-y-auto p-4 space-y-6">
-    <div v-if="store.messages.length === 0" class="text-center text-gray-400 mt-16">
+    <div v-if="threadMessages.length === 0" class="text-center text-gray-400 mt-16">
       <p class="text-lg mb-2">👋 Welcome to Deep RAG Chat</p>
       <p class="text-sm">Start a conversation by asking a question or uploading a document</p>
     </div>
     <div
-      v-for="(message, index) in store.messages"
+      v-for="(message, index) in threadMessages"
       :key="index"
       class="flex gap-4"
       :class="message.role === 'user' ? 'justify-end' : 'justify-start'"
@@ -16,9 +16,15 @@
           ? 'bg-blue-600 text-white' 
           : 'bg-dark-surface text-white border border-dark-border'"
       >
-        <div v-if="message.attachment" class="text-xs text-gray-300 mb-2 flex items-center gap-1">
-          <span>📎</span>
-          <span>{{ message.attachment }}</span>
+        <div v-if="message.attachments && message.attachments.length > 0" class="text-xs text-gray-300 mb-2 space-y-1">
+          <div
+            v-for="(attachment, idx) in message.attachments"
+            :key="`${attachment}-${idx}`"
+            class="flex items-center gap-1"
+          >
+            <span>📎</span>
+            <span>{{ attachment }}</span>
+          </div>
         </div>
         <div class="whitespace-pre-wrap leading-relaxed">{{ cleanAnswerText(message.content) }}</div>
         
@@ -59,9 +65,23 @@
 </template>
 
 <script setup>
+import { computed, defineProps } from 'vue'
 import { useAppStore } from '../stores/app'
 
+const props = defineProps({
+  threadId: {
+    type: String,
+    required: true
+  }
+})
+
 const store = useAppStore()
+
+// Get messages for this specific thread
+const threadMessages = computed(() => {
+  const thread = store.threads[props.threadId]
+  return thread?.messages || []
+})
 
 function getConfidenceIcon(confidence) {
   if (confidence >= 80) return '🟢'

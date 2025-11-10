@@ -236,11 +236,21 @@ Context:
     out = ans.strip()
     normalized_out = out.lower().strip()
     normalized_ascii = normalized_out.encode("ascii", "ignore").decode("ascii") if normalized_out else ""
-    if (
+    
+    # Detect "I don't know" or "no relevant documents" responses
+    is_negative_response = (
         normalized_out.startswith("i don't know")
         or normalized_out.startswith("i do not know")
         or normalized_ascii.startswith("i dont know")
-    ):
+        or "no other documents" in normalized_out
+        or "no documents related" in normalized_out
+        or "no relevant documents" in normalized_out
+        or "no additional documents" in normalized_out
+        or ("there are no" in normalized_out and "document" in normalized_out)
+    )
+    
+    if is_negative_response:
+        logger.info(f"Detected negative/no-documents response - clearing sources")
         citations = []
         top_doc_ids = []
         doc_id = None

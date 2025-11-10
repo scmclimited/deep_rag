@@ -17,23 +17,45 @@
           ref="ingestFileInput"
           @change="handleIngestFileSelect"
           accept=".pdf,.txt,.png,.jpg,.jpeg"
+          multiple
           class="hidden"
         />
         <button
           @click="() => ingestFileInput?.click()"
           class="px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg text-white font-medium transition-colors"
         >
-          📄 Select File to Ingest
+          📄 Select File(s) to Ingest
         </button>
         <p class="text-xs text-gray-400 mt-3">Limit 200MB per file • PDF, TXT, PNG, JPG, JPEG</p>
         <div v-if="ingestingFile" class="mt-3 text-sm text-blue-400">
           ⏳ Ingesting...
         </div>
         <div
-          v-if="ingestionQueue.length > 0"
-          class="mt-3 text-xs text-gray-400"
+          v-if="store.ingesting && currentIngestionItem"
+          class="mt-2 px-3 py-2 bg-blue-900/20 border border-blue-500 rounded-lg text-xs text-blue-200 flex items-center gap-2"
         >
-          {{ store.ingesting ? 'Processing ingestion queue' : 'Queued ingestions' }} • {{ ingestionQueue.length }} file{{ ingestionQueue.length === 1 ? '' : 's' }} remaining
+          <span class="animate-pulse">⏳</span>
+          <span class="truncate flex-1">Ingesting: {{ currentIngestionItem.displayName }}</span>
+        </div>
+        <div
+          v-if="ingestionQueue.length > 0"
+          class="mt-2 space-y-2 text-left"
+        >
+          <div
+            v-for="(item, index) in ingestionQueue"
+            :key="`${item.file.name}-${item.file.size}-${item.file.lastModified}-${index}`"
+            class="flex items-center justify-between px-3 py-2 bg-dark-bg rounded-lg border border-dark-border"
+          >
+            <span class="text-xs truncate flex-1">
+              {{ item.displayName }}
+            </span>
+            <button
+              @click="removeQueuedIngestion(index)"
+              class="text-xs text-red-400 hover:text-red-300 ml-2 transition-colors"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -156,6 +178,8 @@ const fileInput = ref(null)
 const ingestFileInput = ref(null)
 const ingestingFile = ref(false)
 const ingestionQueue = ref([])
+const currentIngestionSignature = ref(null)
+const currentIngestionItem = ref(null)
 const textareaRef = ref(null)
 
 // Use computed to maintain reactivity with store for THIS thread
@@ -187,6 +211,21 @@ function toggleIngestion() {
   if (showIngestion.value) {
     showAttachment.value = false
   }
+}
+
+function getFileSignature(file) {
+  return `${file.name}|${file.size}|${file.lastModified}`
+}
+
+function formatDisplayName(file) {
+  return file?.name || 'Untitled Document'
+}
+
+function formatDocumentTitle(file) {
+  if (!file?.name) return 'Untitled Document'
+  const withoutExtension = file.name.replace(/\.[^/.]+$/, '')
+  const spaced = withoutExtension.replace(/[_-]+/g, ' ').trim()
+  return spaced || withoutExtension || file.name
 }
 
 // Auto-resize textarea based on content
@@ -244,13 +283,42 @@ async function handleFileSelect(event) {
 }
 
 async function handleIngestFileSelect(event) {
-  const file = event.target.files[0]
-  if (!file) return
-  // Queue the ingestion request
-  ingestionQueue.value.push({ file })
-    if (ingestFileInput.value) {
-      ingestFileInput.value.value = ''
+  const rawFiles = Array.from(event.target?.files || []).filter(Boolean)
+  if (rawFiles.length === 0) return
+
+  const existingSignatures = new Set(
+    ingestionQueue.value.map(item => getFileSignature(item.file))
+  )
+  if (currentIngestionSignature.value) {
+    existingSignatures.add(currentIngestionSignature.value)
+  }
+
+  const uniqueNewFiles = rawFiles.filter(file => {
+    const signature = getFileSignature(file)
+    if (existingSignatures.has(signature)) {
+      return false
     }
+    existingSignatures.add(signature)
+    return true
+  })
+
+  if (uniqueNewFiles.length < rawFiles.length) {
+    const duplicateCount = rawFiles.length - uniqueNewFiles.length
+    alert(`${duplicateCount} duplicate file(s) were not added. Each file can only be ingested once.`)
+  }
+
+  uniqueNewFiles.forEach(file => {
+    ingestionQueue.value.push({
+      file,
+      displayName: formatDisplayName(file),
+      docTitle: formatDocumentTitle(file)
+    })
+  })
+
+  if (ingestFileInput.value) {
+    ingestFileInput.value.value = ''
+  }
+
   processIngestionQueue()
 }
 
@@ -259,23 +327,29 @@ async function processIngestionQueue() {
   const nextItem = ingestionQueue.value.shift()
   if (!nextItem) {
     ingestingFile.value = false
+    currentIngestionSignature.value = null
+    currentIngestionItem.value = null
     return
   }
 
   ingestingFile.value = true
   store.ingesting = true
+  currentIngestionSignature.value = getFileSignature(nextItem.file)
+  currentIngestionItem.value = nextItem
   try {
-    await apiService.ingestFile(nextItem.file)
+    await apiService.ingestFile(nextItem.file, nextItem.docTitle)
     store.loadDocuments()
   } catch (error) {
     const errorMessage = error.response?.data?.detail || error.message || 'Network Error'
     console.error('Error ingesting document:', errorMessage)
   } finally {
     store.ingesting = false
+    currentIngestionSignature.value = null
+    currentIngestionItem.value = null
     if (ingestionQueue.value.length > 0) {
       await processIngestionQueue()
     } else {
-    ingestingFile.value = false
+      ingestingFile.value = false
       showIngestion.value = false
     }
   }
@@ -455,5 +529,10 @@ async function sendMessage() {
   } finally {
     store.setThreadProcessing(targetThreadId, false)
   }
+}
+
+function removeQueuedIngestion(index) {
+  if (store.ingesting && index === 0) return
+  ingestionQueue.value.splice(index, 1)
 }
 </script>

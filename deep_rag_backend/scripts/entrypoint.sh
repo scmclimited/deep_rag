@@ -17,6 +17,15 @@ if [ "${RUN_TESTS_ON_STARTUP:-false}" = "true" ]; then
     echo "=========================================="
 fi
 
-# Start the API server
-exec uvicorn inference.service:app --host 0.0.0.0 --port 8000
+# Start the API server with verbose logging
+# --log-level info: Enable INFO level logging for Uvicorn
+# --access-log: Enable access logs
+# --use-colors: Disable colors for Docker logs (better readability)
+exec uvicorn inference.service:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --log-level info \
+    --access-log \
+    --no-use-colors \
+    --workers ${UVICORN_WORKERS:-8}
 

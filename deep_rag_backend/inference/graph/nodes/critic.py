@@ -44,11 +44,35 @@ def node_critic(state: GraphState) -> GraphState:
     # If weak confidence and not at loop cap, propose refinements (sub-queries)
     if conf < 0.6 and state.get("iterations", 0) < MAX_ITERS:
         logger.info(f"Confidence {conf:.2f} < 0.6 threshold - Requesting refinement...")
-        prompt = f"""Given the plan:\n{state.get('plan','')}\nAnd notes:\n{state.get('notes','')}\n
+        logger.info(f"Current iteration: {state.get('iterations', 0)}/{MAX_ITERS}")
+        
+        # Enhanced prompt for multi-document queries
+        question = state.get('question', '')
+        is_multi_doc_query = any(keyword in question.lower() for keyword in [
+            'all documents', 'these documents', 'multiple documents', 'each document',
+            'contents of', 'share the contents', 'what documents'
+        ])
+        
+        if is_multi_doc_query:
+            logger.info("Detected multi-document query - using enhanced refinement strategy")
+            prompt = f"""Given the plan:\n{state.get('plan','')}\nAnd notes:\n{state.get('notes','')}\n
+
+This is a multi-document query. The user wants comprehensive information from multiple documents.
+Propose refined sub-queries (max 2) to retrieve MORE complete evidence from the documents.
+Focus on:
+1. Retrieving more chunks from each document
+2. Getting document metadata (titles, types, structure)
+3. Extracting key content sections
+
+Write queries as natural language questions without special characters like &, *, |, !, :, or quotes. 
+Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & DX"."""
+        else:
+            prompt = f"""Given the plan:\n{state.get('plan','')}\nAnd notes:\n{state.get('notes','')}\n
 Propose refined sub-queries (max 2) to retrieve missing evidence. Short, 1 line each.
 
 IMPORTANT: Write queries as natural language questions without special characters like &, *, |, !, :, or quotes. 
 Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & DX"."""
+        
         refinements = call_llm("You suggest refinements.", [{"role":"user","content":prompt}], max_tokens=120, temperature=0.0)
         lines = [ln.strip("-• ").strip() for ln in refinements.splitlines() if ln.strip()]
         # Additional sanitization: remove any remaining special characters
@@ -67,7 +91,10 @@ Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & D
         result["refinements"] = sanitized_lines[:2] if sanitized_lines else []
         result["iterations"] = state.get("iterations", 0) + 1
         
-        logger.info(f"Refinements: {result['refinements']}")
+        logger.info(f"Generated {len(result['refinements'])} refinement(s):")
+        for i, ref in enumerate(result['refinements'], 1):
+            logger.info(f"  {i}. {ref}")
+        logger.info(f"Next iteration will be: {result['iterations']}/{MAX_ITERS}")
         logger.info("Routing to refine_retrieve node")
         
         # Log refinement decision

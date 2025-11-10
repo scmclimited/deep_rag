@@ -89,4 +89,5 @@ Thumbs.db
 vector_db/*.sql.bak
 *.tmp
 *.bak
+api_logs.txt
 

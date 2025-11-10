@@ -20,7 +20,7 @@ npm run build
 Create a `.env` file:
 
 ```
-VITE_API_BASE_URL=http://localhost:8000
+VITE_API_BASE_URL=http://localhost:5173
 ```
 
 ## Features

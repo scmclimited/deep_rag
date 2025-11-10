@@ -118,50 +118,64 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
         logger.info(f"Pages in final evidence: {pages_found}")
     logger.info("-" * 40)
     
-    # Extract page references and doc_ids from evidence
+    # CRITICAL: Use synthesizer's filtered doc_ids if available (after heuristic filtering)
+    # Otherwise fall back to evidence-based ranking
+    max_docs_to_report = 5
+    synthesizer_doc_ids = resp.get('doc_ids')
+    if synthesizer_doc_ids:
+        logger.info(f"Using synthesizer's filtered doc_ids: {len(synthesizer_doc_ids)} documents")
+        final_doc_ids = synthesizer_doc_ids[:max_docs_to_report]
+        primary_doc_id = final_doc_ids[0] if final_doc_ids else None
+    else:
+        # Fall back to evidence-based ranking (legacy behavior)
+        logger.info("No doc_ids from synthesizer - building from evidence")
+        evidence = resp.get('evidence', [])
+        doc_order: List[str] = []
+        doc_counts: Dict[str, int] = {}
+        if evidence:
+            for ev in evidence[:10]:  # Top 10 chunks for better coverage
+                ev_doc_id = ev.get('doc_id')
+                if ev_doc_id:
+                    doc_counts[ev_doc_id] = doc_counts.get(ev_doc_id, 0) + 1
+                    if ev_doc_id not in doc_order:
+                        doc_order.append(ev_doc_id)
+
+        ranked_doc_ids: List[str] = []
+        if doc_counts:
+            ranked_doc_ids = sorted(
+                doc_counts.keys(),
+                key=lambda doc: (
+                    -doc_counts.get(doc, 0),
+                    doc_order.index(doc) if doc in doc_order else len(doc_order)
+                )
+            )
+        else:
+            ranked_doc_ids = list(dict.fromkeys(doc_order))
+
+        if doc_ids_to_use:
+            for doc_id in doc_ids_to_use:
+                if doc_id and doc_id not in ranked_doc_ids:
+                    ranked_doc_ids.append(doc_id)
+
+        max_docs_to_report = 5
+        final_doc_ids = ranked_doc_ids[:max_docs_to_report]
+        if not final_doc_ids and doc_ids_to_use:
+            final_doc_ids = [doc for doc in doc_ids_to_use if doc][:max_docs_to_report]
+
+        primary_doc_id = final_doc_ids[0] if final_doc_ids else None
+    
+    # Extract page references from evidence (always needed for page display)
     evidence = resp.get('evidence', [])
     pages: List[str] = []
-    doc_order: List[str] = []
-    doc_counts: Dict[str, int] = {}
     if evidence:
-        for ev in evidence[:10]:  # Top 10 chunks for better coverage
+        for ev in evidence[:10]:
             p0 = ev.get('p0')
             p1 = ev.get('p1')
-            ev_doc_id = ev.get('doc_id')
-            if ev_doc_id:
-                doc_counts[ev_doc_id] = doc_counts.get(ev_doc_id, 0) + 1
-                if ev_doc_id not in doc_order:
-                    doc_order.append(ev_doc_id)
-            # Add page range if available
             if p0 is not None:
                 if p1 is not None and p1 != p0:
                     pages.append(f"{p0}-{p1}")
                 else:
                     pages.append(str(p0))
-
-    ranked_doc_ids: List[str] = []
-    if doc_counts:
-        ranked_doc_ids = sorted(
-            doc_counts.keys(),
-            key=lambda doc: (
-                -doc_counts.get(doc, 0),
-                doc_order.index(doc) if doc in doc_order else len(doc_order)
-            )
-        )
-    else:
-        ranked_doc_ids = list(dict.fromkeys(doc_order))
-
-    if doc_ids_to_use:
-        for doc_id in doc_ids_to_use:
-            if doc_id and doc_id not in ranked_doc_ids:
-                ranked_doc_ids.append(doc_id)
-
-    max_docs_to_report = 5
-    final_doc_ids = ranked_doc_ids[:max_docs_to_report]
-    if not final_doc_ids and doc_ids_to_use:
-        final_doc_ids = [doc for doc in doc_ids_to_use if doc][:max_docs_to_report]
-
-    primary_doc_id = final_doc_ids[0] if final_doc_ids else None
     logger.info(f"Document ranking (top {max_docs_to_report}): {final_doc_ids}")
     logger.info(f"Final graph action: {resp.get('action', 'answer')} with iterations={iterations}")
 

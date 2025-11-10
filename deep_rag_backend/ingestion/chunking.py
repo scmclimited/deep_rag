@@ -10,7 +10,7 @@ from typing import List, Tuple, Dict
 logger = logging.getLogger(__name__)
 
 
-def semantic_chunks(page_items: List[Dict], max_words: int = 25, overlap: int = 5) -> Tuple[List[Tuple], str]:
+def semantic_chunks(page_items: List[Dict], max_words: int = 25, overlap: int = 12) -> Tuple[List[Tuple], str]:
     """
     Split pages into chunks with multi-modal support.
     

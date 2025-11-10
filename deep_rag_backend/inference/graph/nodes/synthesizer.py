@@ -2,6 +2,7 @@
 Synthesizer node: Generates final answer from evidence.
 """
 import logging
+import re
 import unicodedata
 from typing import Dict, List
 from inference.graph.state import GraphState
@@ -28,6 +29,17 @@ def node_synthesizer(state: GraphState) -> GraphState:
     evidence = state.get("evidence")
     if evidence is None:
         evidence = []
+    
+    # Log ALL retrieved chunks with their document IDs for debugging
+    logger.info(f"Total chunks retrieved: {len(evidence)}")
+    all_retrieved_docs = set()
+    for idx, ev in enumerate(evidence):
+        ev_doc_id = ev.get('doc_id')
+        if ev_doc_id:
+            all_retrieved_docs.add(ev_doc_id)
+        chunk_preview = ev.get('text', '')[:80].replace('\n', ' ')
+        logger.info(f"  Chunk {idx}: doc_id={ev_doc_id + '...' if ev_doc_id else 'None'}, preview={chunk_preview}...")
+    logger.info(f"All documents in retrieved chunks: {sorted(all_retrieved_docs)}")
     
     logger.info(f"Using top {min(5, len(evidence))} chunks for synthesis")
     
@@ -287,6 +299,9 @@ Context:
     normalized_out = out.lower().strip()
     normalized_ascii = normalized_out.encode("ascii", "ignore").decode("ascii") if normalized_out else ""
     
+    # Get cross_doc flag early so it's always defined (needed for heuristic filtering later)
+    cross_doc = state.get('cross_doc', False)
+    
     # Detect "I don't know" or "no relevant documents" responses
     is_negative_response = (
         normalized_out.startswith("i don't know")
@@ -310,7 +325,6 @@ Context:
         # HYBRID APPROACH: Pass 2 - Post-processing citation alignment
         # For multi-document ATTACHMENT queries (not cross-doc), verify which documents were actually mentioned
         # Skip for cross-doc queries as they are exploratory and should show all found documents
-        cross_doc = state.get('cross_doc', False)
         if len(top_doc_ids) > 1 and not cross_doc:
             logger.info(f"Pass 2: Post-processing citation alignment for {len(top_doc_ids)} documents")
             
@@ -389,6 +403,151 @@ Which documents were used?"""
             else:
                 logger.info("Single document query - skipping citation alignment pass")
     
+    # POST-ANSWER HEURISTIC: For cross-doc queries with 2+ documents, check if answer actually references each document
+    # This catches cases where a document has chunks but isn't mentioned in the final answer
+    # Also checks if answer explicitly mentions multiple documents (e.g., "also listed in", "additionally")
+    # CRITICAL: Check ALL documents in ctx_evs, not just top_doc_ids, to catch documents that were filtered out earlier
+    all_docs_in_evidence = set(h.get('doc_id') for h in ctx_evs if h.get('doc_id'))
+    if cross_doc and len(all_docs_in_evidence) >= 2:
+        logger.info(f"Post-answer heuristic check: Verifying document references in answer for {len(all_docs_in_evidence)} documents in evidence")
+        logger.info(f"  Documents in evidence: {sorted(all_docs_in_evidence)}")
+        logger.info(f"  Documents in top_doc_ids (before heuristic): {sorted(top_doc_ids)}")
+        
+        # Log all chunks with their document IDs for debugging
+        doc_chunk_map = {}
+        for idx, h in enumerate(ctx_evs):
+            doc = h.get('doc_id')
+            if doc:
+                if doc not in doc_chunk_map:
+                    doc_chunk_map[doc] = []
+                chunk_text_preview = h.get('text', '')[:100].replace('\n', ' ')
+                doc_chunk_map[doc].append({
+                    'chunk_idx': idx,
+                    'chunk_id': h.get('chunk_id', '')[:8] + '...' if h.get('chunk_id') else 'N/A',
+                    'preview': chunk_text_preview
+                })
+        
+        for doc, chunks in doc_chunk_map.items():
+            logger.info(f"  Document {doc}... has {len(chunks)} chunk(s):")
+            for chunk_info in chunks:
+                logger.info(f"    - Chunk {chunk_info['chunk_idx']} ({chunk_info['chunk_id']}): {chunk_info['preview']}...")
+        
+        # Build an enhanced heuristic: check if the answer contains meaningful references to each document
+        # Look for document-specific keywords, phrases, and entity names from the chunks
+        doc_keywords = {}
+        doc_phrases = {}  # Multi-word phrases and entity names
+        for h in ctx_evs:
+            doc = h.get('doc_id')
+            if doc:
+                if doc not in doc_keywords:
+                    doc_keywords[doc] = set()
+                    doc_phrases[doc] = set()
+                # Extract meaningful words from chunk text (> 4 chars, not common words)
+                text = h.get('text', '').lower()
+                words = [w for w in text.split() if len(w) > 4 and w.isalpha()]
+                doc_keywords[doc].update(words[:15])  # Take first 15 meaningful words
+                
+                # Extract multi-word phrases (2-3 word combinations) and entity names
+                # Look for capitalized phrases (entity names, document titles, company names)
+                original_text = h.get('text', '')
+                capitalized_phrases = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})\b', original_text)
+                for phrase in capitalized_phrases[:5]:  # Take first 5 phrases
+                    if len(phrase) > 5:  # Only meaningful phrases
+                        doc_phrases[doc].add(phrase.lower())
+                
+                # Extract meaningful multi-word phrases from the text (2-3 word combinations)
+                # Look for sequences of meaningful words that appear together
+                words_list = text.split()
+                meaningful_phrases = []
+                # Extract 2-word phrases (bigrams) from meaningful words
+                for i in range(len(words_list) - 1):
+                    if len(words_list[i]) > 4 and len(words_list[i+1]) > 4:
+                        bigram = f"{words_list[i]} {words_list[i+1]}"
+                        if len(bigram) > 10:  # Only meaningful phrases
+                            meaningful_phrases.append(bigram)
+                # Extract 3-word phrases (trigrams) from meaningful words
+                for i in range(len(words_list) - 2):
+                    if all(len(w) > 4 for w in words_list[i:i+3]):
+                        trigram = f"{words_list[i]} {words_list[i+1]} {words_list[i+2]}"
+                        if len(trigram) > 15:  # Only meaningful phrases
+                            meaningful_phrases.append(trigram)
+                # Add top 10 most meaningful phrases (prioritize longer phrases)
+                meaningful_phrases.sort(key=len, reverse=True)
+                doc_phrases[doc].update(meaningful_phrases[:10])
+        
+        # Check which documents have their keywords or phrases mentioned in the answer
+        answer_lower = out.lower()
+        logger.info(f"  Answer preview (first 300 chars): {out[:300]}...")
+        verified_docs = []
+        # Check ALL documents in evidence, not just those in top_doc_ids
+        for doc in all_docs_in_evidence:
+            keywords = doc_keywords.get(doc, set())
+            phrases = doc_phrases.get(doc, set())
+            
+            logger.info(f"  Checking document {doc}...:")
+            logger.info(f"    - Extracted {len(keywords)} keywords: {list(keywords)[:10]}...")
+            logger.info(f"    - Extracted {len(phrases)} phrases: {list(phrases)[:10]}...")
+            
+            if not keywords and not phrases:
+                # No keywords or phrases extracted - keep the document (benefit of doubt)
+                verified_docs.append(doc)
+                logger.info(f"    → ✓ Kept (no keywords/phrases to check)")
+                continue
+            
+            # Check for keyword matches
+            matched_keywords = [kw for kw in keywords if kw in answer_lower]
+            keyword_matches = len(matched_keywords)
+            keyword_ratio = keyword_matches / len(keywords) if keywords else 0
+            
+            # Check for phrase matches (more important - document titles, entity names)
+            matched_phrases = [phrase for phrase in phrases if phrase in answer_lower]
+            phrase_matches = len(matched_phrases)
+            
+            logger.info(f"    - Matched {keyword_matches}/{len(keywords)} keywords: {matched_keywords[:5]}...")
+            logger.info(f"    - Matched {phrase_matches}/{len(phrases)} phrases: {matched_phrases[:5]}...")
+            
+            # Include document if:
+            # 1. At least 2 keywords match OR 30% of keywords match
+            # 2. OR at least 1 phrase matches (document title, entity name, etc.)
+            # 3. OR at least 1 keyword matches (lenient threshold for partial matches)
+            # Note: keyword_matches >= 1 covers keyword_matches >= 2, so we only need to check >= 1
+            if (keyword_matches >= 1 or keyword_ratio >= 0.3 or phrase_matches >= 1):
+                verified_docs.append(doc)
+                logger.info(f"    → ✓ Kept (criteria met: {keyword_matches}>=1 or {keyword_ratio:.2f}>=0.3 or {phrase_matches}>=1)")
+            else:
+                logger.info(f"    → ✗ Removed (criteria not met: {keyword_matches}<1 and {keyword_ratio:.2f}<0.3 and {phrase_matches}<1)")
+        
+        # Update top_doc_ids to include ALL verified documents (even if they were filtered out earlier)
+        # CRITICAL: Preserve the original sorted order (by count, score, first_index) to ensure consistent ordering
+        if len(verified_docs) != len(top_doc_ids) or set(verified_docs) != set(top_doc_ids):
+            logger.info(f"Heuristic filtering: {len(verified_docs)}/{len(all_docs_in_evidence)} documents verified (was {len(top_doc_ids)} in top_doc_ids)")
+            # Sort verified_docs by the same criteria as sorted_docs (count, score, first_index)
+            # This ensures consistent ordering regardless of set iteration order
+            verified_docs_sorted = sorted(
+                verified_docs,
+                key=lambda doc: (
+                    -float(doc_stats.get(doc, {}).get("count", 0)),
+                    -float(doc_stats.get(doc, {}).get("score", 0)),
+                    doc_stats.get(doc, {}).get("first_index", 999)
+                )
+            )
+            top_doc_ids = verified_docs_sorted
+            logger.info(f"  Preserved sorted order: {[d + '...' for d in top_doc_ids]}")
+            
+            # Rebuild citations with all verified documents
+            citations = []
+            for idx, doc in enumerate(top_doc_ids, start=1):
+                stats = doc_stats.get(doc)
+                if not stats:
+                    continue
+                pages = sorted(stats["pages"])
+                if not pages:
+                    continue
+                formatted_pages = sorted({format_page_range(pg) for pg in pages})
+                page_str = ", ".join(formatted_pages)
+                citations.append(f"[{idx}] doc:{doc} {page_str} (confidence: {overall_confidence_pct})")
+            logger.info(f"Updated citations after heuristic: {citations}")
+    
     if citations:
         out += "\n\nSources: " + ", ".join(citations)
     
@@ -429,4 +588,3 @@ Which documents were used?"""
     )
     
     return result
-

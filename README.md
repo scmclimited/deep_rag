@@ -3,27 +3,34 @@
 Deep RAG is a modular, production-ready Retrieval-Augmented Generation (RAG) system for querying and reasoning over PDFs (text + images). It combines deterministic PDF parsing with hybrid (lexical + vector) retrieval, cross-encoder reranking, and an agentic multi-stage reasoning loop inspired by "deep-thinking RAG" architectures.
 
 ```mermaid
-%%{init: {'flowchart': {'curve': 'linear'}}}%%
+---
+config:
+  flowchart:
+    curve: linear
+---
 graph TD;
-	__start__([__start__]):::first
+	__start__([<p>__start__</p>]):::first
 	planner(planner)
 	retriever(retriever)
 	compressor(compressor)
 	critic(critic)
 	refine_retrieve(refine_retrieve)
 	synthesizer(synthesizer)
-	__end__([__end__]):::last
+	citation_pruner(citation_pruner)
+	__end__([<p>__end__</p>]):::last
 	__start__ --> planner;
+	citation_pruner --> __end__;
 	compressor --> critic;
 	planner --> retriever;
 	refine_retrieve --> compressor;
 	retriever --> compressor;
-	synthesizer --> __end__;
-	critic -. refine .-> refine_retrieve;
-	critic -. synthesizes .-> synthesizer;
-	classDef default fill:#1f2937,color:#f9fafb,stroke:#4b5563,line-height:1.2;
-	classDef first fill:#111827,color:#f9fafb,stroke:#60a5fa;
-	classDef last fill:#2563eb,color:#f9fafb,stroke:#1d4ed8;
+	synthesizer --> citation_pruner;
+	critic -. &nbsp;refine&nbsp; .-> refine_retrieve;
+	critic -. &nbsp;synthesize&nbsp; .-> synthesizer;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+
 ```
 
 ---

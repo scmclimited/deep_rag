@@ -57,4 +57,3 @@ def parse_vector(emb: Union[str, list, tuple, np.ndarray]) -> np.ndarray:
         return emb.astype(np.float32)
     else:
         raise ValueError(f"Unexpected vector type: {type(emb)}")
-

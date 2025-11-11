@@ -12,7 +12,7 @@ from retrieval.sanitize import sanitize_query_for_tsquery
 from retrieval.vector_utils import parse_vector
 from retrieval.reranker import rerank_candidates
 from retrieval.mmr import mmr
-from ingestion.embeddings import embed_text, embed_image, embed_multi_modal, EMBEDDING_DIM
+from ingestion.embeddings import embed_text, embed_multi_modal, EMBEDDING_DIM
 
 logger = logging.getLogger(__name__)
 

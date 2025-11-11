@@ -5,6 +5,10 @@ import logging
 from inference.graph.state import GraphState
 from inference.graph.agent_logger import get_agent_logger
 from retrieval.retrieval import retrieve_hybrid
+import os
+
+from dotenv import load_dotenv
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 agent_log = get_agent_logger()
@@ -67,7 +71,10 @@ def node_retriever(state: GraphState) -> GraphState:
         result["doc_ids"] = []
         return result
     
-    logger.info(f"Retrieval parameters: k=20, k_lex=100, k_vec=100")
+    logger.info(f"Retrieval parameters: k={os.getenv('K_RETRIEVER', '10')}, k_lex={os.getenv('K_LEX', '60')}, k_vec={os.getenv('K_VEC', '60')}")
+    k = int(os.getenv('K_RETRIEVER', '8'))
+    k_lex = int(os.getenv('K_LEX', '60'))
+    k_vec = int(os.getenv('K_VEC', '60'))
     
     # HYBRID APPROACH: Enhanced cross-doc + selection handling
     # When cross_doc=True AND selected_doc_ids provided:
@@ -80,8 +87,8 @@ def node_retriever(state: GraphState) -> GraphState:
         # First, retrieve from selected documents (higher k for better coverage)
         selected_hits = []
         for selected_doc in doc_ids_to_filter:
-            logger.info(f"  Retrieving from selected document: {selected_doc[:8]}...")
-            doc_hits = retrieve_hybrid(q, k=15, k_lex=75, k_vec=75, doc_id=selected_doc, cross_doc=False)
+            logger.info(f"  Retrieving from selected document: {selected_doc}...")
+            doc_hits = retrieve_hybrid(q, k, k_lex, k_vec, doc_id=selected_doc, cross_doc=False)
             selected_hits.extend(doc_hits)
             logger.info(f"    Found {len(doc_hits)} chunks")
         
@@ -103,7 +110,7 @@ def node_retriever(state: GraphState) -> GraphState:
         else:
             logger.info(f"  Limited coverage ({len(unique_selected_hits)} chunks) - supplementing with cross-doc")
             # Retrieve from all documents to supplement
-            cross_doc_hits = retrieve_hybrid(q, k=20, k_lex=100, k_vec=100, doc_id=None, cross_doc=True)
+            cross_doc_hits = retrieve_hybrid(q, k, k_lex, k_vec, doc_id=None, cross_doc=True)
             
             # Merge selected hits (prioritized) with cross-doc hits
             seen_all = set()
@@ -129,7 +136,7 @@ def node_retriever(state: GraphState) -> GraphState:
         all_hits = []
         for doc in doc_ids_to_filter:
             logger.info(f"  Retrieving from selected document: {doc[:8]}...")
-            doc_hits = retrieve_hybrid(q, k=20, k_lex=100, k_vec=100, doc_id=doc, cross_doc=False)
+            doc_hits = retrieve_hybrid(q, k, k_lex, k_vec, doc_id=doc, cross_doc=False)
             all_hits.extend(doc_hits)
             logger.info(f"    Found {len(doc_hits)} chunks")
 

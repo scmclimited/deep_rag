@@ -22,6 +22,7 @@ VECTOR_DB_DIR := vector_db
 .PHONY: backend frontend
 .PHONY: cli-ingest query query-graph infer infer-graph graph health inspect
 .PHONY: test unit-tests integration-tests test-endpoints test-endpoints-make test-endpoints-rest test-endpoints-quick
+.PHONY: clean-cache
 
 help:
 	@echo ""
@@ -57,6 +58,9 @@ help:
 	@echo "  make test-endpoints-make              # Test endpoints via Make commands"
 	@echo "  make test-endpoints-rest              # Test endpoints via REST API"
 	@echo "  make test-endpoints-quick             # Quick endpoint test"
+	@echo ""
+	@echo "Utilities:"
+	@echo "  make clean-cache                      # Remove all Python cache files (__pycache__, .pyc, .pyo)"
 	@echo ""
 	@echo "Note: All commands can be run from the project root (deep_rag/)."
 	@echo "      Backend-specific commands are delegated to deep_rag_backend/makefile"
@@ -165,4 +169,8 @@ test-endpoints-rest:
 
 test-endpoints-quick:
 	@$(MAKE) -C $(BACKEND_DIR) test-endpoints-quick
+
+# --- Utilities ---
+clean-cache:
+	@$(MAKE) -C $(BACKEND_DIR) clean-cache
 

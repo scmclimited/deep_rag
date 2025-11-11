@@ -9,7 +9,8 @@ from inference.graph.nodes import (
     node_compressor,
     node_critic,
     node_refine_retrieve,
-    node_synthesizer
+    node_synthesizer,
+    node_citation_pruner
 )
 from inference.graph.routing import should_refine
 
@@ -35,6 +36,7 @@ def build_app(sqlite_path: str = "langgraph_state.sqlite"):
     graph.add_node("critic", node_critic)
     graph.add_node("refine_retrieve", node_refine_retrieve)
     graph.add_node("synthesizer", node_synthesizer)
+    graph.add_node("citation_pruner", node_citation_pruner)
 
     # Edges
     graph.set_entry_point("planner")
@@ -47,7 +49,8 @@ def build_app(sqlite_path: str = "langgraph_state.sqlite"):
     })
     # After refine retrieval, go back to compressor → critic again
     graph.add_edge("refine_retrieve", "compressor")
-    graph.add_edge("synthesizer", END)
+    graph.add_edge("synthesizer", "citation_pruner")
+    graph.add_edge("citation_pruner", END)
 
     # Persistence (per-thread history/checkpoints)
     if SqliteSaver is not None:

@@ -6,14 +6,22 @@ import numpy as np
 from unittest.mock import patch, MagicMock
 from retrieval.stages.stage_one import retrieve_stage_one
 from retrieval.stages.stage_two import retrieve_stage_two
-
-
+from dotenv import load_dotenv
+load_dotenv()
+import os
+import logging
+logger = logging.getLogger(__name__)
 class TestStageOne:
     """Tests for stage one retrieval."""
     
     @patch('retrieval.stages.stage_one.connect')
     @patch('retrieval.stages.stage_one.embed_text')
     def test_retrieve_stage_one_basic(self, mock_embed_text, mock_connect):
+        k: int = int(os.getenv('K_RETRIEVER', '6'))
+        k_lex: int = int(os.getenv('K_LEX', '60'))
+        k_vec: int = int(os.getenv('K_VEC', '60'))
+        logger.info(f"Test Retrieval - Stage One Basic Parameters: k={k}, k_lex={k_lex}, k_vec={k_vec}")
+
         """Test basic stage one retrieval."""
         mock_embed_text.return_value = np.array([0.1] * 768)
         
@@ -30,7 +38,7 @@ class TestStageOne:
         mock_conn.cursor.return_value.__enter__.return_value = mock_cur
         mock_connect.return_value.__enter__.return_value = mock_conn
         
-        result = retrieve_stage_one("test query", k=5, k_lex=20, k_vec=20, query_image=None, doc_id=None)
+        result = retrieve_stage_one("test query", k, k_lex, k_vec, query_image=None, doc_id=None)
         
         assert len(result) >= 0  # May be empty if embedding parsing fails
         mock_embed_text.assert_called_once()
@@ -38,6 +46,10 @@ class TestStageOne:
     @patch('retrieval.stages.stage_one.connect')
     @patch('retrieval.stages.stage_one.embed_text')
     def test_retrieve_stage_one_with_doc_id(self, mock_embed_text, mock_connect):
+        k: int = int(os.getenv('K_RETRIEVER', '6'))
+        k_lex: int = int(os.getenv('K_LEX', '60'))
+        k_vec: int = int(os.getenv('K_VEC', '60'))
+        logger.info(f"Test Retrieval - Stage One w/Doc ID Parameters: k={k}, k_lex={k_lex}, k_vec={k_vec}")
         """Test stage one retrieval with doc_id filter."""
         mock_embed_text.return_value = np.array([0.1] * 768)
         
@@ -47,7 +59,7 @@ class TestStageOne:
         mock_conn.cursor.return_value.__enter__.return_value = mock_cur
         mock_connect.return_value.__enter__.return_value = mock_conn
         
-        result = retrieve_stage_one("test query", k=5, k_lex=20, k_vec=20, query_image=None, doc_id="doc1")
+        result = retrieve_stage_one("test query", k, k_lex, k_vec, query_image=None, doc_id="doc1")
         
         # Verify doc_id is used in SQL query
         call_args = mock_cur.execute.call_args

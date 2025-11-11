@@ -8,7 +8,9 @@ services:
       - ../../.env
     environment:
       # Database connection - use db service if in same network, or localhost for standalone
+      # set DB_HOST to the DB service name on that network (e.g., deep_rag_pgvector or db).
       DB_HOST: ${DB_HOST:-localhost}
+      # Prefer explicit DB host via .env; if this compose runs with your DB compose,
       DB_PORT: ${DB_PORT:-5432}
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
@@ -18,23 +20,28 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Map logs directory from container to local filesystem (production logs only)
-      # Test logs are excluded - they live in inference/graph/logs/test/ and are not mounted
       - ./inference/graph/logs:/app/inference/graph/logs
-      # Graph visualization artifacts are created in container's /app/inference/graph/artifacts (not mounted)
-      # Use docker cp to extract if needed: docker cp deep_rag_api:/app/inference/graph/artifacts ./inference/graph/artifacts
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
+    # === GPU enablement (Compose v2) ===
+    # This works on most local setups with the NVIDIA Container Toolkit installed.
+    gpus: "all"
+    # If your environment only honors Swarm-style device reservations, also add:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              count: all
     # Optional: Connect to external network if database is in another compose file
     # networks:
     #   - deep_rag_network
-
-# Optional: Use external network for database connection
-# networks:
-#   deep_rag_network:
-#     external: true
-
+    # Optional: Use external network for database connection
+    # networks:
+    #   deep_rag_network:
+    #     external: true

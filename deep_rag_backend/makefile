@@ -7,7 +7,7 @@ FILE ?=
 Q ?=
 OUT ?= inference/graph/artifacts/deep_rag_graph.png
 
-.PHONY: help up down logs rebuild db-up db-down ingest query query-graph infer-graph graph health inspect
+.PHONY: help up down logs rebuild db-up db-down ingest query query-graph infer-graph graph health inspect clean-cache
 
 help:
 	@echo ""
@@ -32,6 +32,7 @@ help:
 	@echo "make test [DOCKER=true]  # run all tests (unit + integration)"
 	@echo "make unit-tests [DOCKER=true]  # run unit tests only"
 	@echo "make integration-tests [DOCKER=true]  # run integration tests only"
+	@echo "make clean-cache  # remove all Python cache files (__pycache__, .pyc, .pyo)"
 	@echo "make test-endpoints  # test all ingest/query/infer endpoints (Make + REST)"
 	@echo "make test-endpoints-make  # test endpoints via Make commands"
 	@echo "make test-endpoints-rest  # test endpoints via REST API (curl)"
@@ -357,6 +358,15 @@ graph:
 health:
 	@echo "Checking API health..."
 	@curl -s http://localhost:8000/health | python -m json.tool 2>/dev/null || curl -s http://localhost:8000/health || echo "Error: API is not running. Please run 'make up' first."
+
+# --- Cache Management ---
+clean-cache:
+	@echo "Cleaning Python cache files (__pycache__ and .pyc)..."
+	@$(PY) -m scripts.clean_cache || \
+	 (find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true; \
+	  find . -type f -name "*.pyc" -delete 2>/dev/null || true; \
+	  find . -type f -name "*.pyo" -delete 2>/dev/null || true)
+	@echo "Cache cleaned successfully!"
 
 # --- Diagnostics ---
 # Inspect what chunks and pages are stored for a document

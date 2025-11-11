@@ -12,7 +12,7 @@ services:
       POSTGRES_MAX_CONNECTIONS: 200
       # Performance tuning for high-concurrency workloads
       POSTGRES_SHARED_BUFFERS: 4GB
-      POSTGRES_EFFECTIVE_CACHE_SIZE: 12GB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 10GB
       POSTGRES_MAINTENANCE_WORK_MEM: 1GB
       POSTGRES_WORK_MEM: 64MB
       POSTGRES_MAX_WORKER_PROCESSES: 16
@@ -30,13 +30,12 @@ services:
           cpus: '4.0'
           memory: 4G
     volumes:
-      # Schema with all features integrated (no migrations needed)
+      # Named volume for persistent data (remove to start fresh)
+      - deep_rag_db_data:/var/lib/postgresql/data
+      # Schema with all features integrated
       - ./vector_db/schema_multimodal.sql:/docker-entrypoint-initdb.d/01_schema_multimodal.sql
       # Custom PostgreSQL configuration for high-performance workloads
       - ./vector_db/postgresql.conf:/etc/postgresql/postgresql.conf
-      # Named volume for persistent data (remove to start fresh)
-      # Uncomment to persist data across container restarts:
-      # - deep_rag_db_data:/var/lib/postgresql/data
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
@@ -45,46 +44,35 @@ services:
       retries: 10
     networks:
       - deep_rag_network
-
-# Uncomment to persist database data across container restarts:
-# volumes:
-#   deep_rag_db_data:
-
   api:
     build:
       context: ./deep_rag_backend
       dockerfile: Dockerfile
     container_name: deep_rag_api
-    depends_on:
-      db:
-        condition: service_healthy
     env_file:
       - .env
     environment:
-      # If .env is set for local runs (DB_HOST=localhost),
-      # change it to DB_HOST=db when running via Compose.
+      # Database connection - use service name 'db' when in Docker network
       DB_HOST: db
-      DB_PORT: ${DB_PORT}
+      DB_PORT: ${DB_PORT:-5432}
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       DB_NAME: ${DB_NAME}
-      # Optional: Set RUN_TESTS_ON_STARTUP=true to run database schema tests on startup
-      # RUN_TESTS_ON_STARTUP: ${RUN_TESTS_ON_STARTUP:-false}
-      # Uvicorn workers for concurrent request handling (increase for high-concurrency)
-      UVICORN_WORKERS: 8
-      # Increase timeout for long-running LangGraph operations
-      UVICORN_TIMEOUT_KEEP_ALIVE: 300
-    ports:
-      - "8000:8000"
-    # Increase resource limits for high-performance workloads
+    depends_on:
+      db:
+        condition: service_healthy
+    # GPU enablement (Compose v2)
+    gpus: "all"
+    # If your setup only honors Swarm-style device reservations, also add:
     deploy:
       resources:
-        limits:
-          cpus: '16.0'
-          memory: 32G
         reservations:
-          cpus: '4.0'
-          memory: 8G
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+              count: all
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
     volumes:
       # Map logs directory from container to local filesystem (production logs only)
       # This ensures logs written to /app/inference/graph/logs/ inside the container
@@ -93,11 +81,14 @@ services:
       - ./deep_rag_backend/inference/graph/logs:/app/inference/graph/logs
       # Graph visualization artifacts are created in container's /app/inference/graph/artifacts (not mounted)
       # Use docker cp to extract if needed: docker cp deep_rag_api:/app/inference/graph/artifacts ./deep_rag_backend/inference/graph/artifacts
+    working_dir: /app
+    # Use entrypoint.sh which handles CUDA verification and starts the service
+    # entrypoint.sh uses: uvicorn inference.service:app
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "python - <<'PY'\nimport socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',8000)); print('ok')\nPY"]
       interval: 10s
-      timeout: 5s
-      retries: 5
+      timeout: 3s
+      retries: 10
       start_period: 30s
     networks:
       - deep_rag_network
@@ -127,6 +118,9 @@ services:
       start_period: 10s
     networks:
       - deep_rag_network
+
+volumes:
+  deep_rag_db_data:
 
 networks:
   deep_rag_network:

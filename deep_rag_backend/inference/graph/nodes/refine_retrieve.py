@@ -1,11 +1,14 @@
 """
 Refine retrieve node: Optional additional retrieve step driven by critic's refinements.
 """
+import os
 import logging
 from typing import List, Dict, Any
 from inference.graph.state import GraphState
 from inference.graph.agent_logger import get_agent_logger
 from retrieval.retrieval import retrieve_hybrid
+from dotenv import load_dotenv
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 agent_log = get_agent_logger()
@@ -22,6 +25,10 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
     logger.info(f"  - Current evidence: {len(state.get('evidence', []))} chunks")
     logger.info(f"  - Cross-doc: {state.get('cross_doc', False)}")
     logger.info("-" * 80)
+    k: int = int(os.getenv('K_RETRIEVER', '12'))
+    k_lex: int = int(os.getenv('K_LEX', '72'))
+    k_vec: int = int(os.getenv('K_VEC', '72'))
+    logger.info(f"Refine Retrieval Parameters: k={k}, k_lex={k_lex}, k_vec={k_vec}")
     
     refinements = state.get("refinements", [])
     if not refinements:
@@ -62,7 +69,7 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
     
     for idx, rq in enumerate(refinements, 1):
         logger.info(f"Refinement {idx}/{len(refinements)}: {rq}")
-        hits = retrieve_hybrid(rq, k=15, k_lex=75, k_vec=75, doc_id=doc_id_for_retrieval, cross_doc=cross_doc_for_retrieval)
+        hits = retrieve_hybrid(rq, k, k_lex, k_vec, doc_id=doc_id_for_retrieval, cross_doc=cross_doc_for_retrieval)
         
         # Filter hits to only include selected doc_ids if specific documents were selected
         if doc_ids_to_filter and len(doc_ids_to_filter) > 0:
@@ -94,7 +101,7 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
     # Log retrieved chunks with text preview
     for i, hit in enumerate(hits_all[:5], 1):
         logger.info(f"  Refinement [{i}] Pages: {hit.get('p0', 'N/A')}-{hit.get('p1', 'N/A')}")
-        text_preview = hit.get('text', '')[:150] if hit.get('text') else 'N/A'
+        text_preview = hit.get('text', '')[:250] if hit.get('text') else 'N/A'
         logger.info(f"      Text preview: {text_preview}...")
     
     # Merge with existing evidence

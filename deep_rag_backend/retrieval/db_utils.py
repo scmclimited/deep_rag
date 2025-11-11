@@ -29,15 +29,24 @@ def _get_pool():
     global _connection_pool
     if _connection_pool is None:
         try:
-            logger.info("Initializing PostgreSQL connection pool (2-30 connections)")
+            # Get connection parameters (environment variables take precedence over .env file)
+            db_host = os.getenv("DB_HOST")
+            db_port = os.getenv("DB_PORT")
+            db_user = os.getenv("DB_USER")
+            db_pass = os.getenv("DB_PASS")
+            db_name = os.getenv("DB_NAME")
+            
+            logger.info(f"Initializing PostgreSQL connection pool (2-30 connections)")
+            logger.info(f"Connection parameters: host={db_host}, port={db_port}, user={db_user}, dbname={db_name}")
+            
             _connection_pool = pool.ThreadedConnectionPool(
                 minconn=2,   # Start with minimal connections
                 maxconn=30,  # Maximum connections (should be < POSTGRES_MAX_CONNECTIONS)
-                host=os.getenv("DB_HOST"),
-                port=os.getenv("DB_PORT"),
-                user=os.getenv("DB_USER"),
-                password=os.getenv("DB_PASS"),
-                dbname=os.getenv("DB_NAME")
+                host=db_host,
+                port=db_port,
+                user=db_user,
+                password=db_pass,
+                dbname=db_name
             )
             logger.info("PostgreSQL connection pool initialized successfully")
         except Exception as e:
@@ -69,12 +78,18 @@ def connect():
     except Exception as e:
         logger.warning(f"Connection pool unavailable, using direct connection: {e}")
         # Fallback to direct connection (old behavior)
+        db_host = os.getenv("DB_HOST")
+        db_port = os.getenv("DB_PORT")
+        db_user = os.getenv("DB_USER")
+        db_pass = os.getenv("DB_PASS")
+        db_name = os.getenv("DB_NAME")
+        logger.info(f"Fallback connection: host={db_host}, port={db_port}, user={db_user}, dbname={db_name}")
         conn = psycopg2.connect(
-            host=os.getenv("DB_HOST"),
-            port=os.getenv("DB_PORT"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASS"),
-            dbname=os.getenv("DB_NAME")
+            host=db_host,
+            port=db_port,
+            user=db_user,
+            password=db_pass,
+            dbname=db_name
         )
         try:
             yield conn

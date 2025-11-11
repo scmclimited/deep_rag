@@ -210,20 +210,34 @@ async def infer_graph(
         doc_ids = result.get("doc_ids", [])
         pages = result.get("pages", [])
         
-        # If no doc_id but doc_ids available, use first one
-        if not final_doc_id and doc_ids:
-            final_doc_id = doc_ids[0]
-            doc_title = get_document_title(final_doc_id) if final_doc_id else None
-            if final_doc_id:
-                doc_titles_map[final_doc_id] = doc_title
-        
-        # Collect titles for all reported doc_ids (preserving order)
-        doc_titles: List[Optional[str]] = []
-        if len(doc_ids) > 1:
-            for doc_identifier in doc_ids:
-                if doc_identifier not in doc_titles_map:
-                    doc_titles_map[doc_identifier] = get_document_title(doc_identifier)
-                doc_titles.append(doc_titles_map.get(doc_identifier))
+        # Use doc_map from citation_pruner if available (has "used" status)
+        doc_map = result.get("doc_map", [])
+        if doc_map:
+            # Build doc_titles from doc_map (only used documents)
+            doc_titles = [doc.get("title") for doc in doc_map if doc.get("used", False)]
+            # Update doc_titles_map from doc_map
+            for doc in doc_map:
+                if doc.get("doc_id") and doc.get("title"):
+                    doc_titles_map[doc["doc_id"]] = doc["title"]
+            # Set final_doc_id if not already set
+            if not final_doc_id and doc_ids:
+                final_doc_id = doc_ids[0]
+                doc_title = doc_titles_map.get(final_doc_id)
+        else:
+            # Fallback: Build doc_titles manually if doc_map not available
+            if not final_doc_id and doc_ids:
+                final_doc_id = doc_ids[0]
+                doc_title = get_document_title(final_doc_id) if final_doc_id else None
+                if final_doc_id:
+                    doc_titles_map[final_doc_id] = doc_title
+            
+            # Collect titles for all reported doc_ids (preserving order)
+            doc_titles: List[Optional[str]] = []
+            if len(doc_ids) > 1:
+                for doc_identifier in doc_ids:
+                    if doc_identifier not in doc_titles_map:
+                        doc_titles_map[doc_identifier] = get_document_title(doc_identifier)
+                    doc_titles.append(doc_titles_map.get(doc_identifier))
         
         # Log thread interaction to database (synchronous operation, but FastAPI handles it)
         try:
@@ -255,7 +269,10 @@ async def infer_graph(
         action = result.get("action", "answer")
         is_abstain = action == "abstain"
         
-        return {
+        # Get citations from citation_pruner if available
+        citations = result.get("citations", [])
+        
+        response = {
             "answer": result.get("answer", ""),
             "confidence": result.get("confidence", 0.0),
             "action": action,
@@ -267,12 +284,20 @@ async def infer_graph(
             "file_types": [meta["file_type"] for meta in attachment_metadata] if attachment_metadata else None,
             "uploaded_doc_ids": None if is_abstain else (uploaded_doc_ids if uploaded_doc_ids else None),
             "doc_id": None if is_abstain else final_doc_id,
-            "doc_ids": [] if is_abstain else doc_ids,  # Clear doc_ids for abstain
+            "doc_ids": [] if is_abstain else doc_ids,  # Clear doc_ids for abstain (already pruned by citation_pruner)
             "doc_title": None if is_abstain else doc_title,
             "doc_titles": [] if is_abstain else (doc_titles if doc_titles else None),
             "pages": [] if is_abstain else pages,  # Clear pages for abstain
             "cross_doc": cross_doc
         }
+        
+        # Add doc_map and citations from citation_pruner if available
+        if doc_map and not is_abstain:
+            response["doc_map"] = doc_map
+        if citations and not is_abstain:
+            response["citations"] = citations
+        
+        return response
                 
     except HTTPException:
         raise

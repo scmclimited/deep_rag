@@ -38,14 +38,15 @@ class TestConfidenceScoring:
         
         feats = build_conf_features(chunks)
         
-        assert feats["f1"] == 0.80  # max rerank (ce)
+        # Features are raw values (weights applied in confidence_probability)
+        assert feats["f1"] == pytest.approx(0.80, abs=0.01)  # max rerank (ce) - raw value
         assert feats["f2"] == 0.0  # margin (only one chunk)
-        assert feats["f3"] == 0.75  # mean cosine
+        assert feats["f3"] == pytest.approx(0.75, abs=0.01)  # mean cosine - raw value
         assert feats["f4"] == 0.0  # std cosine (only one chunk)
         assert feats["f5"] > 0.0  # cosine coverage
         assert feats["f6"] > 0.0  # bm25 normalized
-        assert feats["f8"] == 1.0  # unique page fraction (1 page / 1 chunk)
-        assert feats["f9"] == 1.0  # doc diversity (1 doc / 1 chunk)
+        assert feats["f8"] == pytest.approx(1.0, abs=0.01)  # unique page fraction - raw value
+        assert feats["f9"] == pytest.approx(1.0, abs=0.01)  # doc diversity - raw value
     
     def test_build_conf_features_multiple_chunks(self):
         """Test feature building with multiple chunks (realistic scenario)."""
@@ -84,14 +85,16 @@ class TestConfidenceScoring:
         
         feats = build_conf_features(chunks)
         
-        assert feats["f1"] == 0.88  # max rerank
-        assert feats["f2"] == pytest.approx(0.16, abs=0.01)  # margin (0.88 - 0.72) - allow floating point precision
-        assert feats["f3"] == pytest.approx(0.716, abs=0.01)  # mean cosine
+        # Features are raw values (weights applied in confidence_probability)
+        mean_cos = (0.85 + 0.70 + 0.60) / 3  # 0.7167
+        assert feats["f1"] == pytest.approx(0.88, abs=0.01)  # max rerank - raw value
+        assert feats["f2"] == pytest.approx(0.88 - 0.72, abs=0.01)  # margin - raw value
+        assert feats["f3"] == pytest.approx(mean_cos, abs=0.01)  # mean cosine - raw value
         assert feats["f4"] > 0.0  # std cosine (should have variance)
         assert feats["f5"] > 0.0  # cosine coverage
         assert feats["f6"] > 0.0  # bm25 normalized
-        assert feats["f8"] < 1.0  # unique page fraction (2 pages / 3 chunks)
-        assert feats["f9"] == pytest.approx(0.333, abs=0.01)  # doc diversity (1 doc / 3 chunks)
+        assert feats["f8"] < 1.0  # unique page fraction - raw value (2 pages / 3 chunks)
+        assert feats["f9"] == pytest.approx(1.0 / 3, abs=0.01)  # doc diversity - raw value (1 doc / 3 chunks)
     
     def test_build_conf_features_with_query_terms(self):
         """Test feature building with query term coverage."""
@@ -152,7 +155,7 @@ class TestConfidenceScoring:
         feats = build_conf_features(chunks, answer_text=answer_text, use_answer_overlap=True)
         
         assert feats["f10"] > 0.0  # answer overlap should be > 0
-        assert feats["f10"] <= 1.0  # answer overlap should be <= 1
+        assert feats["f10"] <= 1.0  # answer overlap - raw value (Jaccard similarity, max 1.0)
     
     def test_confidence_probability_high_confidence(self):
         """Test confidence probability calculation with high-quality chunks."""
@@ -385,9 +388,9 @@ class TestConfidenceScoring:
         query = "What is the assessment about?"
         result = get_confidence_for_chunks(chunks, query=query)
         
-        # Document diversity should be < 1.0 (2 docs / 3 chunks)
-        assert result["features"]["f9"] < 1.0
-        assert result["features"]["f9"] == pytest.approx(0.666, abs=0.01)
+        # Document diversity should be < 1.0 (2 docs / 3 chunks) - raw value
+        assert result["features"]["f9"] < 1.0  # raw value
+        assert result["features"]["f9"] == pytest.approx(2.0 / 3, abs=0.01)  # raw value (2 docs / 3 chunks)
     
     def test_get_confidence_for_chunks_with_answer_overlap(self):
         """Test confidence calculation with answer overlap feature enabled."""
@@ -414,9 +417,9 @@ class TestConfidenceScoring:
             use_answer_overlap=True
         )
         
-        # Answer overlap should be calculated
+        # Answer overlap should be calculated - raw value (Jaccard similarity)
         assert result["features"]["f10"] > 0.0
-        assert result["features"]["f10"] <= 1.0
+        assert result["features"]["f10"] <= 1.0  # raw value (Jaccard similarity, max 1.0)
     
     def test_confidence_thresholds_abstain(self):
         """Test that confidence below threshold triggers abstain."""
@@ -546,9 +549,9 @@ class TestConfidenceScoring:
         assert "abstain_threshold" in result
         assert "clarify_threshold" in result
         
-        # Verify feature values
+        # Verify feature values (raw values, weights applied in confidence_probability)
         feats = result["features"]
-        assert feats["f1"] == 0.82  # max rerank
+        assert feats["f1"] == pytest.approx(0.82, abs=0.01)  # max rerank - raw value
         assert feats["f2"] > 0.0  # margin
         assert feats["f3"] > 0.0  # mean cosine
         assert feats["f6"] > 0.0  # bm25 normalized

@@ -10,9 +10,17 @@ from inference.graph.state import GraphState
 class TestNodeSynthesizer:
     """Tests for synthesizer graph node."""
     
+    @patch('inference.graph.nodes.synthesizer.get_confidence_for_chunks')
     @patch('inference.graph.nodes.synthesizer.call_llm')
-    def test_node_synthesizer_basic(self, mock_call_llm):
+    def test_node_synthesizer_basic(self, mock_call_llm, mock_confidence):
         """Test basic synthesis functionality."""
+        # Mock confidence to return high enough value to proceed
+        mock_confidence.return_value = {
+            "confidence": 85.0,
+            "probability": 0.85,
+            "action": "answer",
+            "features": {}
+        }
         mock_call_llm.return_value = "This is the answer."
         
         state: GraphState = {
@@ -34,7 +42,8 @@ class TestNodeSynthesizer:
         result = node_synthesizer(state)
         
         assert "This is the answer." in result["answer"]
-        assert "Sources:" in result["answer"]
+        # Note: Sources section is now added by citation_pruner, not synthesizer
+        # So we don't assert "Sources:" here - that's handled in citation_pruner tests
         mock_call_llm.assert_called_once()
     
     def test_node_synthesizer_no_evidence_abstains(self):
@@ -219,9 +228,17 @@ class TestNodeSynthesizer:
         call_args = mock_call_llm.call_args
         assert "Focus your answer on the identified document" in call_args[0][1][0]["content"]
     
+    @patch('inference.graph.nodes.synthesizer.get_confidence_for_chunks')
     @patch('inference.graph.nodes.synthesizer.call_llm')
-    def test_node_synthesizer_includes_citations(self, mock_call_llm):
+    def test_node_synthesizer_includes_citations(self, mock_call_llm, mock_confidence):
         """Test that citations are included in answer."""
+        # Mock confidence to return high enough value to proceed
+        mock_confidence.return_value = {
+            "confidence": 85.0,
+            "probability": 0.85,
+            "action": "answer",
+            "features": {}
+        }
         mock_call_llm.return_value = "Answer with citation [1]."
         
         state: GraphState = {
@@ -242,9 +259,15 @@ class TestNodeSynthesizer:
         
         result = node_synthesizer(state)
         
-        # Should include Sources section with citation
-        assert "Sources:" in result["answer"]
-        assert "doc:doc1" in result["answer"] or "p1" in result["answer"]
+        # Note: Sources section is now added by citation_pruner, not synthesizer
+        # The synthesizer just returns the raw answer with citations in the payload
+        # So we verify the answer contains the citation reference, but not the Sources section
+        assert "Answer with citation [1]." in result["answer"]
+        # Citations are passed in the result payload, not in the answer text
+        # Citations should be built for doc1 since it's in the evidence
+        assert result.get("citations") is not None
+        assert len(result["citations"]) > 0
+        assert any("doc1" in cit for cit in result["citations"])
     
     @patch('inference.graph.nodes.synthesizer.call_llm')
     def test_node_synthesizer_uses_top_5_chunks(self, mock_call_llm):

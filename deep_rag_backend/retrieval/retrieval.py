@@ -11,6 +11,9 @@ from PIL import Image
 # Import from modularized submodules
 from retrieval.wait import wait_for_chunks
 from retrieval.stages import retrieve_stage_one, retrieve_stage_two, merge_and_deduplicate
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +26,9 @@ __all__ = [
 
 def retrieve_hybrid(
     query: str, 
-    k=8, 
-    k_lex=40, 
-    k_vec=40,
+    k: int = int(os.getenv("K_RETRIEVER", "6")),
+    k_lex: int = int(os.getenv("K_LEX", "60")), 
+    k_vec: int = int(os.getenv("K_VEC", "60")),
     query_image: Optional[Union[str, Image.Image]] = None,
     doc_id: Optional[str] = None,
     cross_doc: bool = False
@@ -52,7 +55,7 @@ def retrieve_hybrid(
     """
     # Two-stage retrieval when cross_doc=True and doc_id is provided
     if cross_doc and doc_id:
-        logger.info(f"Two-stage retrieval: First stage from doc_id {doc_id[:8]}..., then cross-document semantic search")
+        logger.info(f"Two-stage retrieval: First stage from doc_id {doc_id}..., then cross-document semantic search")
         
         # Stage 1: Retrieve from doc_id (primary retrieval)
         primary_chunks = retrieve_stage_one(query, k, k_lex, k_vec, query_image, doc_id)
@@ -64,7 +67,7 @@ def retrieve_hybrid(
         
         # Stage 2: Embed query + retrieved content, then search semantically across all docs
         # Combine query with retrieved content for better semantic search
-        combined_text = query + " " + " ".join([c["text"][:500] for c in primary_chunks[:3]])  # Use top 3 chunks
+        combined_text = query + " " + " ".join([c["text"][:500] for c in primary_chunks[:5]])  # Use top 5 chunks
         logger.info(f"Stage 2: Cross-document semantic search with combined query + retrieved content")
         
         secondary_chunks = retrieve_stage_two(combined_text, k, k_lex, k_vec, query_image, doc_id)

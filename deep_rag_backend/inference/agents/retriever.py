@@ -4,7 +4,10 @@ Retriever agent: Fetches relevant chunks from the vector database.
 import logging
 from inference.agents.state import State
 from retrieval.retrieval import retrieve_hybrid
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 
 
@@ -21,9 +24,13 @@ def retriever_agent(state: State) -> State:
         logger.info(f"Filtering to document: {doc_id}...")
     if cross_doc:
         logger.info("Cross-document retrieval enabled")
-    logger.info(f"Retrieval parameters: k=8, k_lex=40, k_vec=40")
     
-    hits = retrieve_hybrid(q, k=8, k_lex=40, k_vec=40, doc_id=doc_id, cross_doc=cross_doc)
+    k: int = int(os.getenv('K_RETRIEVER', '8'))
+    k_lex: int = int(os.getenv('K_LEX', '60'))
+    k_vec: int = int(os.getenv('K_VEC', '60'))
+    logger.info(f"Retrieval Agent Parameters: k={k}, k_lex={k_lex}, k_vec={k_vec}")
+
+    hits = retrieve_hybrid(q, k, k_lex, k_vec, doc_id=doc_id, cross_doc=cross_doc)
     state["evidence"] = hits
     
     # Track all doc_ids from retrieved chunks

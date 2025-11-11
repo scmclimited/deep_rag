@@ -44,6 +44,7 @@ dependencies = [
 
 [project.scripts]
 deep-rag = "cli:app"
+clean-cache = "deep_rag_backend.scripts.clean_cache:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

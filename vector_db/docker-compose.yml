@@ -24,6 +24,5 @@ services:
       timeout: 3s
       retries: 10
 
-# Uncomment to persist database data across container restarts:
-# volumes:
-#   deep_rag_db_data:
+volumes:
+  deep_rag_db_data:

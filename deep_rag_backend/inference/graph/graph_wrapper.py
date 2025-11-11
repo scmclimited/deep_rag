@@ -118,13 +118,14 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
         logger.info(f"Pages in final evidence: {pages_found}")
     logger.info("-" * 40)
     
-    # CRITICAL: Use synthesizer's filtered doc_ids if available (after heuristic filtering)
-    # Otherwise fall back to evidence-based ranking
-    max_docs_to_report = 5
-    synthesizer_doc_ids = resp.get('doc_ids')
-    if synthesizer_doc_ids:
-        logger.info(f"Using synthesizer's filtered doc_ids: {len(synthesizer_doc_ids)} documents")
-        final_doc_ids = synthesizer_doc_ids[:max_docs_to_report]
+    # CRITICAL: Use citation_pruner's filtered doc_ids (only documents referenced in answer)
+    # citation_pruner has already pruned to only include documents explicitly referenced
+    citation_pruner_doc_ids = resp.get('doc_ids')
+    doc_map = resp.get('doc_map', [])  # Document map with "used" status from citation_pruner
+    
+    if citation_pruner_doc_ids:
+        logger.info(f"Using citation_pruner's filtered doc_ids: {len(citation_pruner_doc_ids)} documents")
+        final_doc_ids = citation_pruner_doc_ids  # Already pruned, no need to limit further
         primary_doc_id = final_doc_ids[0] if final_doc_ids else None
     else:
         # Fall back to evidence-based ranking (legacy behavior)
@@ -164,19 +165,27 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
 
         primary_doc_id = final_doc_ids[0] if final_doc_ids else None
     
-    # Extract page references from evidence (always needed for page display)
-    evidence = resp.get('evidence', [])
-    pages: List[str] = []
-    if evidence:
-        for ev in evidence[:10]:
-            p0 = ev.get('p0')
-            p1 = ev.get('p1')
-            if p0 is not None:
-                if p1 is not None and p1 != p0:
-                    pages.append(f"{p0}-{p1}")
-                else:
-                    pages.append(str(p0))
-    logger.info(f"Document ranking (top {max_docs_to_report}): {final_doc_ids}")
+    # Use pages from citation_pruner (already filtered to only used documents)
+    pages_from_pruner = resp.get('pages', [])
+    if pages_from_pruner:
+        # Pages are already integers from citation_pruner, convert to strings
+        pages = [str(p) for p in pages_from_pruner]
+        logger.info(f"Using pages from citation_pruner: {pages}")
+    else:
+        # Fallback: Extract page references from evidence
+        evidence = resp.get('evidence', [])
+        pages: List[str] = []
+        if evidence:
+            for ev in evidence[:10]:
+                p0 = ev.get('p0')
+                p1 = ev.get('p1')
+                if p0 is not None:
+                    if p1 is not None and p1 != p0:
+                        pages.append(f"{p0}-{p1}")
+                    else:
+                        pages.append(str(p0))
+    
+    logger.info(f"Final document IDs (from citation_pruner): {final_doc_ids}")
     logger.info(f"Final graph action: {resp.get('action', 'answer')} with iterations={iterations}")
 
     answer_text = resp.get("answer", "")
@@ -208,14 +217,25 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
         pages = []
     
     # Return full state with answer, confidence, action, and metadata
-    return {
+    result = {
         "answer": answer_text,
         "confidence": resp.get("confidence", 0.0),
         "action": resp.get("action", "answer"),
         "doc_id": primary_doc_id,
         "doc_ids": final_doc_ids,
-        "pages": sorted(set(pages)) if pages else []  # Unique sorted pages
+        "pages": sorted(set(pages)) if pages else [],  # Unique sorted pages
     }
+    
+    # Include doc_map if available (from citation_pruner)
+    if doc_map:
+        result["doc_map"] = doc_map
+    
+    # Include citations if available (from citation_pruner)
+    citations = resp.get("citations")
+    if citations:
+        result["citations"] = citations
+    
+    return result
 
 if __name__ == "__main__":
     import sys

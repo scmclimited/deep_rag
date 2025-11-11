@@ -7,6 +7,9 @@ from inference.agents.state import State
 from inference.agents.constants import MAX_ITERS, THRESH
 from inference.llm import call_llm
 from retrieval.retrieval import retrieve_hybrid
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +19,10 @@ def critic(state: State) -> State:
     logger.info("-" * 40)
     logger.info("AGENT: Critic - Evaluating evidence quality")
     logger.info("-" * 40)
-    
+    k: int = int(os.getenv('K_CRITIC', '6'))
+    k_lex: int = int(os.getenv('K_LEX', '60'))
+    k_vec: int = int(os.getenv('K_VEC', '60'))
+    logger.info(f"Critic Retrieval parameters: k={k}, k_lex={k_lex}, k_vec={k_vec}")
     ev = state["evidence"]
     strong = sum(1 for h in ev if h.get("ce", 0.0) > THRESH or (h["lex"]>0 and h["vec"]>0))
     conf = min(0.9, 0.4 + 0.1*strong)  # toy heuristic; plug in your own
@@ -30,7 +36,7 @@ def critic(state: State) -> State:
         logger.info(f"Confidence {conf:.2f} < 0.6 threshold - Requesting refinement...")
         # Ask for refinement: new sub-questions or different keywords
         prompt = f"""Given the plan:\n{state['plan']}\nAnd notes:\n{state['notes']}\n
-Propose refined sub-queries (max 2) to retrieve missing evidence. Short, 1 line each.
+Propose refined sub-queries (max 4) to retrieve missing evidence. Short, 1 line each.
 
 IMPORTANT: Write queries as natural language questions without special characters like &, *, |, !, :, or quotes. 
 Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & DX"."""
@@ -45,7 +51,7 @@ Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & D
         
         doc_id = state.get('doc_id')
         cross_doc = state.get('cross_doc', False)
-        hits = retrieve_hybrid(rq, k=6, k_lex=30, k_vec=30, doc_id=doc_id, cross_doc=cross_doc)
+        hits = retrieve_hybrid(rq, k, k_lex, k_vec, doc_id=doc_id, cross_doc=cross_doc)
         
         # Track doc_ids from refinement retrieval
         doc_ids_found = set(state.get('doc_ids', []))
@@ -71,7 +77,7 @@ Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & D
         if conf >= 0.6:
             logger.info(f"Confidence {conf:.2f} >= 0.6 - Proceeding to synthesis")
         else:
-            logger.warning(f"Max iterations ({MAX_ITERS}) reached with confidence {conf:.2f}")
+            logger.info(f"Max iterations ({MAX_ITERS}) reached with confidence {conf:.2f}")
     logger.info("-" * 80)
     return state
 

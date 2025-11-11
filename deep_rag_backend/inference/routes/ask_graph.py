@@ -7,6 +7,7 @@
 """
 Ask graph route - Query existing documents using LangGraph pipeline.
 """
+
 import logging
 from typing import Any, Dict, List, Optional, cast
 
@@ -135,19 +136,29 @@ def ask_graph(body: AskGraphBody) -> Dict[str, Any]:
         pages_raw = result.get("pages", [])
         pages: List[str] = [str(value) for value in pages_raw if value is not None]
         
-        # If no doc_id but doc_ids available, use first one
-        if not doc_id and doc_ids:
-            doc_id = doc_ids[0]
-            doc_title = get_document_title(doc_id) if doc_id else None
-            if doc_id:
-                doc_titles_map[doc_id] = doc_title
-        
-        doc_titles: List[Optional[str]] = []
-        if len(doc_ids) > 1:
-            for doc_identifier in doc_ids:
-                if doc_identifier not in doc_titles_map:
-                    doc_titles_map[doc_identifier] = get_document_title(doc_identifier)
-                doc_titles.append(doc_titles_map.get(doc_identifier))
+        # Use doc_map from citation_pruner if available (has "used" status)
+        doc_map = result.get("doc_map", [])
+        if doc_map:
+            # Build doc_titles from doc_map (only used documents)
+            doc_titles = [doc.get("title") for doc in doc_map if doc.get("used", False)]
+            # Update doc_titles_map from doc_map
+            for doc in doc_map:
+                if doc.get("doc_id") and doc.get("title"):
+                    doc_titles_map[doc["doc_id"]] = doc["title"]
+        else:
+            # Fallback: Build doc_titles manually if doc_map not available
+            if not doc_id and doc_ids:
+                doc_id = doc_ids[0]
+                doc_title = get_document_title(doc_id) if doc_id else None
+                if doc_id:
+                    doc_titles_map[doc_id] = doc_title
+            
+            doc_titles: List[Optional[str]] = []
+            if len(doc_ids) > 1:
+                for doc_identifier in doc_ids:
+                    if doc_identifier not in doc_titles_map:
+                        doc_titles_map[doc_identifier] = get_document_title(doc_identifier)
+                    doc_titles.append(doc_titles_map.get(doc_identifier))
         
         # Log thread interaction to database (synchronous operation, but FastAPI handles it)
         try:
@@ -169,7 +180,10 @@ def ask_graph(body: AskGraphBody) -> Dict[str, Any]:
             logger.error(f"Failed to log thread interaction: {e}", exc_info=True)
             # Don't fail the request if logging fails, but log as error
         
-        return {
+        # Get citations from citation_pruner if available
+        citations = result.get("citations", [])
+        
+        response = {
             "answer": result.get("answer", ""),
             "confidence": result.get("confidence", 0.0),
             "action": result.get("action", "answer"),
@@ -177,12 +191,20 @@ def ask_graph(body: AskGraphBody) -> Dict[str, Any]:
             "pipeline": "langgraph",
             "thread_id": body.thread_id,
             "doc_id": doc_id,
-            "doc_ids": doc_ids,  # All doc_ids used
+            "doc_ids": doc_ids,  # All doc_ids used (pruned by citation_pruner)
             "doc_title": doc_title,
             "doc_titles": doc_titles if doc_titles else None,
             "pages": pages,  # Page references
             "cross_doc": body.cross_doc
         }
+        
+        # Add doc_map and citations from citation_pruner if available
+        if doc_map:
+            response["doc_map"] = doc_map
+        if citations:
+            response["citations"] = citations
+        
+        return response
     except Exception as e:
         logger.error(f"Error in /ask-graph: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

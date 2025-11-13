@@ -3,17 +3,15 @@ CLIP model loading and configuration.
 """
 import os
 import logging
-from sentence_transformers import SentenceTransformer
+import torch
+from transformers import CLIPProcessor, CLIPModel
 
 logger = logging.getLogger(__name__)
 
-# Lazy loading for CLIP model
-_clip_model = None
-
 # Model configuration
-# CLIP-ViT-L/14: 768 dimensions (upgraded from ViT-B/32 512 dims)
-# Better performance with higher dimensional representations
-# Still has 77 token limit for text (inherent to CLIP architecture)
+# openai/clip-vit-large-patch14-336: 768 dimensions
+# Text encoder: 77 token limit (inherent to CLIP architecture)
+# Image encoder: 336x336 pixels input size
 DEFAULT_CLIP_MODEL = os.getenv("CLIP_MODEL")
 EMBEDDING_DIM_ENV = os.getenv("EMBEDDING_DIM")
 
@@ -22,14 +20,14 @@ if DEFAULT_CLIP_MODEL is None:
     raise ValueError(
         "CLIP_MODEL environment variable is not set. "
         "Please set CLIP_MODEL in your .env file. "
-        "Example: CLIP_MODEL=sentence-transformers/clip-ViT-L-14"
+        "Example: CLIP_MODEL=openai/clip-vit-large-patch14-336"
     )
 
 if EMBEDDING_DIM_ENV is None:
     raise ValueError(
         "EMBEDDING_DIM environment variable is not set. "
         "Please set EMBEDDING_DIM in your .env file. "
-        "Example: EMBEDDING_DIM=768 (for CLIP-ViT-L/14) or EMBEDDING_DIM=512 (for CLIP-ViT-B/32)"
+        "Example: EMBEDDING_DIM=768 (for openai/clip-vit-large-patch14-336)"
     )
 
 try:
@@ -39,56 +37,69 @@ except (ValueError, TypeError) as e:
         f"EMBEDDING_DIM must be a valid integer. Got: {EMBEDDING_DIM_ENV}"
     ) from e
 
+# Global variables for model and processor
+_clip_model = None
+_clip_processor = None
 
-def get_clip_model() -> SentenceTransformer:
+
+def get_clip_model() -> CLIPModel:
     """
-    Lazy load CLIP model for multi-modal embeddings.
+    Load CLIP model for multi-modal embeddings.
+    Supports loading from local path (via CLIP_MODEL_PATH env var) or Hugging Face.
     
     Returns:
-        SentenceTransformer CLIP model instance
+        CLIPModel instance from transformers
         
     Raises:
         ImportError: If CLIP model cannot be loaded
     """
-    global _clip_model
+    global _clip_model, _clip_processor
+    
     if _clip_model is None:
         try:
-            # CLIP model that handles both text and images in same embedding space
-            # Default: ViT-L/14 (768 dims) for better quality
-            # Alternative: ViT-B/32 (512 dims) for faster performance
-            # Can be configured via CLIP_MODEL environment variable
-            _clip_model = SentenceTransformer(DEFAULT_CLIP_MODEL)
+            # Check if we have a local model path
+            local_model_path = os.getenv("CLIP_MODEL_PATH")
+            
+            # If CLIP_MODEL_PATH is not set, check default models directory
+            # Models downloaded via download_model.py are stored as: models/{model_name.replace('/', '_')}
+            if not local_model_path or not os.path.exists(local_model_path):
+                # Try default models directory based on model name
+                model_name_safe = DEFAULT_CLIP_MODEL.replace('/', '_')
+                default_models_path = os.path.join('/app', 'models', model_name_safe)
+                if os.path.exists(default_models_path):
+                    local_model_path = default_models_path
+                    logger.info(f"Found model in default location: {local_model_path}")
+            
+            # Determine which path to use
+            if local_model_path and os.path.exists(local_model_path):
+                model_path = local_model_path
+                logger.info(f"Loading CLIP model from local path: {local_model_path}")
+            else:
+                model_path = DEFAULT_CLIP_MODEL
+                logger.info(f"Loading CLIP model from Hugging Face: {DEFAULT_CLIP_MODEL}")
+            
+            _clip_model = CLIPModel.from_pretrained(model_path)
+            _clip_processor = CLIPProcessor.from_pretrained(model_path)
+            
+            # Set model to evaluation mode
+            _clip_model.eval()
             
             # Validate that the model is properly initialized
-            # Check that _first_module() is not None (indicates model loaded correctly)
-            try:
-                first_module = _clip_model._first_module()
-                if first_module is None:
-                    raise ValueError(
-                        f"CLIP model '{DEFAULT_CLIP_MODEL}' loaded but has no modules. "
-                        "This usually means the model failed to load properly. "
-                        "Check that the model name is correct and the model files are available."
-                    )
-            except AttributeError:
-                # If _first_module() doesn't exist, check _modules directly
-                if not hasattr(_clip_model, '_modules') or len(_clip_model._modules) == 0:
-                    raise ValueError(
-                        f"CLIP model '{DEFAULT_CLIP_MODEL}' loaded but has no modules. "
-                        "This usually means the model failed to load properly. "
-                        "Check that the model name is correct and the model files are available."
-                    )
-                # Check that first module is not None
-                first_module = list(_clip_model._modules.values())[0] if _clip_model._modules else None
-                if first_module is None:
-                    raise ValueError(
-                        f"CLIP model '{DEFAULT_CLIP_MODEL}' loaded but first module is None. "
-                        "This usually means the model failed to load properly. "
-                        "Check that the model name is correct and the model files are available."
-                    )
+            if _clip_model is None:
+                raise ValueError(
+                    f"CLIP model '{DEFAULT_CLIP_MODEL}' failed to load. "
+                    "Check that the model name is correct and the model files are available."
+                )
             
             # Test that the model can actually encode (functional validation)
             try:
-                test_embedding = _clip_model.encode("test", convert_to_numpy=True)
+                # Test text encoding
+                test_text = "test"
+                inputs = _clip_processor(text=[test_text], return_tensors="pt", padding=True, truncation=True)
+                with torch.no_grad():
+                    text_features = _clip_model.get_text_features(**inputs)
+                    test_embedding = text_features[0].cpu().numpy()
+                
                 if test_embedding is None or len(test_embedding) == 0:
                     raise ValueError("Model encoding test returned empty result")
                 if len(test_embedding) != EMBEDDING_DIM:
@@ -105,12 +116,33 @@ def get_clip_model() -> SentenceTransformer:
             logger.info(f"Loaded CLIP multi-modal embedding model ({DEFAULT_CLIP_MODEL}, {EMBEDDING_DIM} dims)")
         except Exception as e:
             logger.error(f"Failed to load CLIP model: {e}")
-            _clip_model = None  # Reset on failure
+            _clip_model = None
+            _clip_processor = None
             raise ImportError(
                 f"CLIP model not available: {e}\n"
-                "Install with: pip install sentence-transformers\n"
+                "Install with: pip install transformers torch\n"
                 f"Failed model: {DEFAULT_CLIP_MODEL}\n"
                 "Make sure CLIP_MODEL is set correctly in your .env file."
             ) from e
+    
     return _clip_model
+
+
+def get_clip_processor() -> CLIPProcessor:
+    """
+    Get CLIP processor for tokenization and image preprocessing.
+    
+    Returns:
+        CLIPProcessor instance from transformers
+        
+    Raises:
+        ImportError: If CLIP processor cannot be loaded
+    """
+    global _clip_processor
+    
+    # Ensure model is loaded (which also loads processor)
+    if _clip_processor is None:
+        get_clip_model()  # This will load both model and processor
+    
+    return _clip_processor
 

@@ -13,7 +13,7 @@ class TestSynthesizer:
     @patch('inference.agents.synthesizer.call_llm')
     def test_synthesizer_basic(self, mock_call_llm):
         """Test basic synthesis functionality."""
-        mock_call_llm.return_value = "This is the answer."
+        mock_call_llm.return_value = ("This is the answer.", {"input_tokens": 20, "output_tokens": 4, "total_tokens": 24})
         
         state: State = {
             "question": "What is the answer?",
@@ -39,7 +39,7 @@ class TestSynthesizer:
     @patch('inference.agents.synthesizer.call_llm')
     def test_synthesizer_with_doc_id(self, mock_call_llm):
         """Test synthesis with doc_id context."""
-        mock_call_llm.return_value = "Answer with doc context."
+        mock_call_llm.return_value = ("Answer with doc context.", {"input_tokens": 25, "output_tokens": 4, "total_tokens": 29})
         
         state: State = {
             "question": "Test question",
@@ -66,7 +66,7 @@ class TestSynthesizer:
     @patch('inference.agents.synthesizer.call_llm')
     def test_synthesizer_includes_citations(self, mock_call_llm):
         """Test that citations are included in answer."""
-        mock_call_llm.return_value = "Answer with citation [1]."
+        mock_call_llm.return_value = ("Answer with citation [1].", {"input_tokens": 20, "output_tokens": 5, "total_tokens": 25})
         
         state: State = {
             "question": "Test question",
@@ -92,7 +92,7 @@ class TestSynthesizer:
     @patch('inference.agents.synthesizer.call_llm')
     def test_synthesizer_tracks_doc_ids(self, mock_call_llm):
         """Test that synthesizer tracks doc_ids from evidence."""
-        mock_call_llm.return_value = "Answer."
+        mock_call_llm.return_value = ("Answer.", {"input_tokens": 15, "output_tokens": 1, "total_tokens": 16})
         
         state: State = {
             "question": "Test question",
@@ -120,7 +120,7 @@ class TestSynthesizer:
     @patch('inference.agents.synthesizer.call_llm')
     def test_synthesizer_uses_top_5_chunks(self, mock_call_llm):
         """Test that synthesizer only uses top 5 chunks."""
-        mock_call_llm.return_value = "Answer."
+        mock_call_llm.return_value = ("Answer.", {"input_tokens": 15, "output_tokens": 1, "total_tokens": 16})
         
         state: State = {
             "question": "Test question",

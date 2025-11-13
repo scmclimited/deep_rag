@@ -9,6 +9,7 @@ dependencies = [
 [project.scripts]
 deep-rag = "inference.cli:app"
 clean-cache = "scripts.clean_cache:main"
+logs = "scripts.logs:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

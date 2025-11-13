@@ -19,6 +19,7 @@ export const useAppStore = defineStore('app', () => {
   const activeQueries = ref({}) // { threadId: { status, query } }
   const ingesting = ref(false)
   const pendingAttachmentsMap = ref({}) // { threadId: File[] }
+  const scrollSignal = ref({ threadId: null, token: 0, forceInstant: true })
   
   function ensureThreadEntry(threadId) {
     if (!threadId) return null
@@ -138,9 +139,22 @@ export const useAppStore = defineStore('app', () => {
     
     // Load thread's UI state (cross-doc toggle, selected docs)
     const threadEntry = ensureThreadEntry(threadId)
-    messages.value = [...(threadEntry?.messages || [])] // Keep for backward compatibility
+    const threadMessages = threadEntry?.messages || []
+    messages.value = [...threadMessages] // Keep for backward compatibility
     crossDocSearch.value = !!threadEntry?.cross_doc
-    selectedDocIds.value = [...(threadEntry?.active_doc_ids || [])]
+
+    if (threadEntry?.selectionTouched) {
+      selectedDocIds.value = [...(threadEntry.active_doc_ids || [])]
+    } else {
+      selectedDocIds.value = []
+    }
+
+    // Emit scroll signal to ensure UI scrolls to latest message when switching threads
+    scrollSignal.value = {
+      threadId,
+      token: Date.now(),
+      forceInstant: true
+    }
   }
   
   function addMessage(message, targetThreadId = currentThreadId.value) {
@@ -152,17 +166,67 @@ export const useAppStore = defineStore('app', () => {
       return
     }
     threadEntry.cross_doc = crossDocSearch.value
+    const existing = threadEntry.messages || []
+    
+    // Ensure new message has a timestamp that's later than the last message
+    // This prevents new messages from appearing at the top
+    let messageTimestamp = message.timestamp || message.created_at || new Date().toISOString()
+    if (existing.length > 0) {
+      // Get the last message's timestamp
+      const lastMessage = existing[existing.length - 1]
+      const lastTimestamp = new Date(lastMessage.timestamp || lastMessage.created_at || 0).getTime()
+      const newTimestamp = new Date(messageTimestamp).getTime()
+      
+      // If new message timestamp is not later than last message, ensure it's at least 1ms later
+      // This ensures stable sorting even when messages are created in quick succession
+      if (newTimestamp <= lastTimestamp) {
+        const now = Date.now()
+        // Ensure the new timestamp is at least 1ms after the last message
+        const minTimestamp = lastTimestamp + 1
+        messageTimestamp = new Date(Math.max(now, minTimestamp)).toISOString()
+        console.log(`addMessage: Adjusted timestamp for ${message.role} message to ensure it's after last message (${messageTimestamp})`)
+      }
+    }
+    
     const messagePayload = {
       ...message,
+      // Ensure timestamp is always set and is a valid ISO string, and is later than existing messages
+      timestamp: messageTimestamp,
       attachments: Array.isArray(message.attachments)
         ? [...message.attachments]
         : message.attachments
     }
-    const existing = threadEntry.messages || []
+    
+    // Since we ensure the new message timestamp is always later than the last message,
+    // we can simply append it to the end without sorting
+    // This maintains the correct order and prevents temporary reordering
     const updated = [...existing, messagePayload]
+    
+    // Only sort if there might be out-of-order messages (e.g., from backend merge)
+    // For new messages, we know they're in order, so sorting is unnecessary
+    // But we sort anyway to handle edge cases where messages might have been loaded out of order
+    updated.sort((a, b) => {
+      const timeA = new Date(a.timestamp || a.created_at || 0).getTime()
+      const timeB = new Date(b.timestamp || b.created_at || 0).getTime()
+      // If timestamps are equal, preserve insertion order (newer messages come after)
+      if (timeA === timeB) {
+        return 0
+      }
+      return timeA - timeB
+    })
+    
+    console.log(`addMessage: Added ${messagePayload.role} message to thread ${targetThreadId.substring(0, 8)}... at ${messagePayload.timestamp}, total messages: ${updated.length}`)
+    
     threadEntry.messages = updated
     if (currentThreadId.value === targetThreadId) {
       messages.value = [...updated]
+    }
+
+    // Emit scroll signal so UI can scroll to the latest message immediately
+    scrollSignal.value = {
+      threadId: targetThreadId,
+      token: Date.now(),
+      forceInstant: message.role === 'user'
     }
   }
   
@@ -316,6 +380,74 @@ export const useAppStore = defineStore('app', () => {
     return !!threadEntry?.is_processing
   }
   
+  async function refreshThreadHistory(threadId = currentThreadId.value) {
+    if (!threadId || !userId.value) return
+    const threadEntry = threads.value[threadId]
+    if (!threadEntry || threadEntry.persisted === false) {
+      // Not a persisted thread, no need to refresh
+      return
+    }
+    try {
+      const result = await apiService.getThread(threadId, userId.value)
+      if (result?.messages !== undefined) {
+        const localMessages = threadEntry.messages || []
+        const backendMessages = result.messages || []
+        
+        // Find the latest backend message timestamp
+        const latestBackendTime = backendMessages.length > 0
+          ? Math.max(...backendMessages.map(msg => new Date(msg.timestamp || msg.created_at || 0).getTime()))
+          : 0
+        
+        // Keep local messages that are newer than the latest backend message
+        // These are messages that were just added but not yet persisted
+        const newLocalMessages = localMessages.filter(msg => {
+          const msgTime = new Date(msg.timestamp || msg.created_at || 0).getTime()
+          return msgTime > latestBackendTime
+        })
+        
+        // Merge: backend messages (source of truth) + new local messages (not yet persisted)
+        // Use a stable sort that preserves order for messages with identical timestamps
+        const mergedMessages = [...backendMessages, ...newLocalMessages].sort((a, b) => {
+          const timeA = new Date(a.timestamp || a.created_at || 0).getTime()
+          const timeB = new Date(b.timestamp || b.created_at || 0).getTime()
+          // If timestamps are equal, preserve insertion order (backend messages first, then local)
+          if (timeA === timeB) {
+            // If both are in backend or both are local, preserve their relative order
+            const aInBackend = backendMessages.some(bm => 
+              (bm.timestamp || bm.created_at) === (a.timestamp || a.created_at) &&
+              bm.content === a.content
+            )
+            const bInBackend = backendMessages.some(bm => 
+              (bm.timestamp || bm.created_at) === (b.timestamp || b.created_at) &&
+              bm.content === b.content
+            )
+            // Backend messages come before local messages with same timestamp
+            if (aInBackend && !bInBackend) return -1
+            if (!aInBackend && bInBackend) return 1
+            return 0
+          }
+          return timeA - timeB
+        })
+        
+        console.log(`refreshThreadHistory: Refreshed thread ${threadId.substring(0, 8)}... - ${backendMessages.length} backend + ${newLocalMessages.length} new local = ${mergedMessages.length} total`)
+        
+        // Update thread with merged messages
+        threadEntry.messages = mergedMessages
+        if (currentThreadId.value === threadId) {
+          messages.value = [...mergedMessages]
+          // After loading history, ensure UI scrolls to the latest message
+          scrollSignal.value = {
+            threadId,
+            token: Date.now(),
+            forceInstant: true
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing thread history:', error)
+    }
+  }
+  
   function markDocProcessed(docId) {
     processedDocIds.value.add(docId)
   }
@@ -347,6 +479,7 @@ export const useAppStore = defineStore('app', () => {
     activeQueries,
     ingesting,
     pendingAttachmentsMap, // Export raw map for per-thread access
+    scrollSignal,
     // Computed
     currentThread,
     activeDocIdsForThread,
@@ -366,6 +499,7 @@ export const useAppStore = defineStore('app', () => {
     clearPendingAttachments,
     setThreadProcessing,
     isThreadProcessing,
+    refreshThreadHistory,
     markDocProcessed,
     isDocProcessed
   }

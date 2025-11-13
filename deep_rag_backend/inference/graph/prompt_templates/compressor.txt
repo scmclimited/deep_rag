@@ -1,0 +1,5 @@
+Summarize the following snippets into crisp notes with bullets.
+Retain numbers and proper nouns verbatim. Avoid speculation.
+Snippets:
+{snippets}
+

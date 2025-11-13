@@ -25,9 +25,9 @@ export const apiService = {
   },
   
   // Threads
-  async getThreads(userId, limit = 100) {
+  async getThreads(userId, limit = 100, includeArchived = false) {
     const response = await api.get('/threads', {
-      params: { user_id: userId, limit }
+      params: { user_id: userId, limit, include_archived: includeArchived }
     })
     return response.data
   },
@@ -43,6 +43,13 @@ export const apiService = {
     const response = await api.post('/threads', {
       thread_id: threadId,
       user_id: userId
+    })
+    return response.data
+  },
+
+  async archiveThread(threadId, userId, archived = true) {
+    const response = await api.patch(`/threads/${threadId}/archive`, null, {
+      params: { user_id: userId, archived }
     })
     return response.data
   },

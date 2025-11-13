@@ -86,8 +86,40 @@ def build_conf_features(
     # Extract scores (using ce as rerank_score, vec as cosine)
     reranks = [float(c.get("ce", c.get("vec", 0.0)) or 0.0) for c in ranked_chunks]
     cosines = [float(c.get("vec", 0.0) or 0.0) for c in ranked_chunks]
+    lex_scores = [float(c.get("lex", 0.0) or 0.0) for c in ranked_chunks]
+    # Extract actual CE scores (not fallback to vec) to detect if all are negative
+    ce_scores = [float(c.get("ce", 0.0) or 0.0) for c in ranked_chunks]
+    
     logger.debug(f"build_conf_features: Score ranges - reranks: [{min(reranks) if reranks else 0:.3f}, {max(reranks) if reranks else 0:.3f}], "
-                 f"cosines: [{min(cosines) if cosines else 0:.3f}, {max(cosines) if cosines else 0:.3f}]")
+                 f"cosines: [{min(cosines) if cosines else 0:.3f}, {max(cosines) if cosines else 0:.3f}], "
+                 f"lex: [{min(lex_scores) if lex_scores else 0:.3f}, {max(lex_scores) if lex_scores else 0:.3f}], "
+                 f"ce: [{min(ce_scores) if ce_scores else 0:.3f}, {max(ce_scores) if ce_scores else 0:.3f}]")
+    
+    # Check if lexical search failed but vector search found relevant chunks
+    # This happens with meta-queries like "find documents with X" where lexical requires all terms
+    # but vector search successfully finds chunks containing X
+    # Also happens with explicitly selected documents and ambiguous queries like "share details about this document"
+    has_lexical_matches = any(lex > 0.0 for lex in lex_scores)
+    # Lower threshold (0.4) to catch moderate vector matches that are still relevant
+    # Especially important for explicitly selected documents with ambiguous queries
+    has_good_vector_matches = any(vec > 0.4 for vec in cosines)  # Lowered from 0.5 to catch more cases
+    # Check if all CE scores are negative (indicating meta-query mismatch)
+    all_ce_negative = len(ce_scores) > 0 and all(ce < 0.0 for ce in ce_scores)
+    
+    # If lexical failed but vector found good matches, and all CE are negative,
+    # this is likely a meta-query issue or explicit doc selection with ambiguous query
+    # Use vector scores instead of CE for rerank
+    if not has_lexical_matches and has_good_vector_matches and all_ce_negative:
+        logger.info(f"Lexical search failed but vector search found relevant chunks - likely meta-query or explicit doc selection. "
+                   f"Using vector scores for rerank instead of CE. "
+                   f"has_lexical_matches={has_lexical_matches}, has_good_vector_matches={has_good_vector_matches}, "
+                   f"all_ce_negative={all_ce_negative}, max_vec={max(cosines) if cosines else 0:.3f}")
+        # Use vector scores as rerank scores when CE is unreliable (meta-query/explicit selection scenario)
+        reranks = cosines.copy()
+        logger.info(f"Replaced rerank scores: max_rerank changed from {max([float(c.get('ce', c.get('vec', 0.0)) or 0.0) for c in ranked_chunks]) if ranked_chunks else 0:.3f} to {max(reranks) if reranks else 0:.3f}")
+    else:
+        logger.debug(f"Not using vector scores for rerank: has_lexical_matches={has_lexical_matches}, "
+                    f"has_good_vector_matches={has_good_vector_matches}, all_ce_negative={all_ce_negative}")
     
     # f1: max rerank score (raw value, weights applied in confidence_probability)
     max_r = max(reranks) if reranks else 0.0
@@ -117,7 +149,7 @@ def build_conf_features(
     
     # f6: BM25 normalized (if available, otherwise 0.0) - raw value
     # Note: We can approximate with lex scores normalized
-    lex_scores = [float(c.get("lex", 0.0) or 0.0) for c in ranked_chunks]
+    # (lex_scores already extracted above)
     if lex_scores and k > 0:
         max_lex = max(lex_scores)
         bm25_norm = sum(lex_scores) / (max_lex * k) if max_lex > 0 else 0.0
@@ -125,14 +157,25 @@ def build_conf_features(
         bm25_norm = 0.0
     
     # f7: term coverage (query terms found in chunks) - raw value
+    # For meta-queries like "find documents with X", focus on finding the actual search term (X)
+    # rather than requiring all query words
     if query_terms:
         seen_terms = set()
+        # Filter out common stop words that don't indicate relevance
+        # These are often in meta-queries but not in content
+        stop_words = {"can", "you", "find", "me", "which", "documents", "have", "in", "them", "the", "a", "an", "is", "are", "was", "were", "do", "does", "did"}
+        meaningful_terms = {t.lower() for t in query_terms if t.lower() not in stop_words}
+        
+        # If we filtered out too many terms, use original terms (query might be short)
+        if len(meaningful_terms) == 0:
+            meaningful_terms = {t.lower() for t in query_terms}
+        
         for c in ranked_chunks:
             text = (c.get("text") or "").lower()
             # Simple tokenization
             tokens = set(text.split())
-            seen_terms |= (tokens & set(t.lower() for t in query_terms))
-        term_cov = _safe_div(len(seen_terms), len(query_terms))
+            seen_terms |= (tokens & meaningful_terms)
+        term_cov = _safe_div(len(seen_terms), len(meaningful_terms)) if meaningful_terms else 0.0
     else:
         term_cov = 0.0
     

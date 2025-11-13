@@ -40,7 +40,7 @@ Propose refined sub-queries (max 4) to retrieve missing evidence. Short, 1 line 
 
 IMPORTANT: Write queries as natural language questions without special characters like &, *, |, !, :, or quotes. 
 Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & DX"."""
-        refinements = call_llm("You suggest refinements for the given question and plan.", [{"role":"user","content":prompt}], max_tokens=120)
+        refinements, _ = call_llm("You suggest refinements for the given question and plan.", [{"role":"user","content":prompt}], max_tokens=120)
         # Re-query once with the first refinement
         rq_raw = refinements.splitlines()[0].strip("-• ").strip()
         # Sanitize the refinement query

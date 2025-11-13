@@ -6,6 +6,7 @@ import re
 from inference.graph.state import GraphState
 from inference.graph.constants import MAX_ITERS, THRESH
 from inference.graph.agent_logger import get_agent_logger
+from inference.graph.prompt_templates import format_template
 from inference.llm import call_llm
 
 logger = logging.getLogger(__name__)
@@ -55,25 +56,19 @@ def node_critic(state: GraphState) -> GraphState:
         
         if is_multi_doc_query:
             logger.info("Detected multi-document query - using enhanced refinement strategy")
-            prompt = f"""Given the plan:\n{state.get('plan','')}\nAnd notes:\n{state.get('notes','')}\n
-
-This is a multi-document query. The user wants comprehensive information from multiple documents.
-Propose refined sub-queries (max 2) to retrieve MORE complete evidence from the documents.
-Focus on:
-1. Retrieving more chunks from each document
-2. Getting document metadata (titles, types, structure)
-3. Extracting key content sections
-
-Write queries as natural language questions without special characters like &, *, |, !, :, or quotes. 
-Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & DX"."""
+            prompt = format_template(
+                "critic_multi_doc",
+                plan=state.get('plan', ''),
+                notes=state.get('notes', '')
+            )
         else:
-            prompt = f"""Given the plan:\n{state.get('plan','')}\nAnd notes:\n{state.get('notes','')}\n
-Propose refined sub-queries (max 2) to retrieve missing evidence. Short, 1 line each.
-
-IMPORTANT: Write queries as natural language questions without special characters like &, *, |, !, :, or quotes. 
-Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & DX"."""
+            prompt = format_template(
+                "critic_standard",
+                plan=state.get('plan', ''),
+                notes=state.get('notes', '')
+            )
         
-        refinements = call_llm("You suggest refinements.", [{"role":"user","content":prompt}], max_tokens=120, temperature=0.0)
+        refinements, _ = call_llm("You suggest refinements.", [{"role":"user","content":prompt}], max_tokens=120, temperature=0.0)
         lines = [ln.strip("-• ").strip() for ln in refinements.splitlines() if ln.strip()]
         # Additional sanitization: remove any remaining special characters
         sanitized_lines = []

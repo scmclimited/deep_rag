@@ -25,7 +25,7 @@ class TestLLMProviderConnectivity:
         test_message = [{"role": "user", "content": "Say 'test' if you can read this."}]
         
         try:
-            response = call_llm(
+            response, token_info = call_llm(
                 system="You are a helpful assistant.",
                 messages=test_message,
                 max_tokens=50,
@@ -35,6 +35,8 @@ class TestLLMProviderConnectivity:
             assert response is not None
             assert len(response) > 0
             assert isinstance(response, str)
+            assert isinstance(token_info, dict)
+            assert "total_tokens" in token_info
             
             print(f"✅ {llm_provider} connectivity test passed")
             print(f"Response: {response[:100]}...")

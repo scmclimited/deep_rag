@@ -9,7 +9,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 import os
 
 logger = logging.getLogger(__name__)
@@ -24,21 +24,45 @@ class AgentLogger:
     - TXT: For presentations, debugging, human review
     """
     
-    def __init__(self, log_dir: str = None):
+    def __init__(self, log_dir: Optional[Union[str, Path]] = None):
         # Detect if running in test environment
-        is_test = os.getenv("PYTEST_CURRENT_TEST") is not None or "pytest" in sys.modules
+        # Check multiple ways to detect test environment:
+        # 1. AGENT_LOG_TEST_MODE environment variable (explicit override)
+        # 2. PYTEST_CURRENT_TEST environment variable (set by pytest)
+        # 3. pytest module loaded in sys.modules
+        # 4. Check if we're in a test directory or test file
+        explicit_test_mode = os.getenv("AGENT_LOG_TEST_MODE", "").lower() in ("true", "1", "yes")
+        pytest_env = os.getenv("PYTEST_CURRENT_TEST") is not None
+        pytest_module = "pytest" in sys.modules
+        cwd_has_test = "test" in str(Path.cwd()).lower()
+        path_has_test = any("test" in str(p).lower() for p in Path.cwd().parts)
+        
+        is_test = explicit_test_mode or pytest_env or pytest_module or cwd_has_test or path_has_test
         self.is_test = is_test
         
         if log_dir is None:
+            # Get the base directory (where this file is located)
+            # This file is at: deep_rag_backend/inference/graph/agent_logger.py
+            # So Path(__file__).parent gives us inference/graph/
+            base_dir = Path(__file__).parent  # inference/graph/
+            
             if is_test:
                 # Use test logs directory when running tests
-                log_dir = "inference/graph/logs/test"
+                log_dir_path = base_dir / "logs" / "test"
+                logger.info(f"Test mode detected - using test logs directory: {log_dir_path}")
+                logger.debug(f"Test detection: explicit={explicit_test_mode}, pytest_env={pytest_env}, pytest_module={pytest_module}, cwd_has_test={cwd_has_test}, path_has_test={path_has_test}")
             else:
-                # Use regular logs directory for production
-                log_dir = "inference/graph/logs"
+                # Use dev logs directory for production/dev
+                log_dir_path = base_dir / "logs" / "dev"
+                logger.debug(f"Production/dev mode - using dev logs directory: {log_dir_path}")
+        else:
+            # If log_dir is provided, convert to Path
+            log_dir_path = Path(log_dir) if isinstance(log_dir, str) else log_dir
         
-        self.log_dir = Path(log_dir)
+        self.log_dir = log_dir_path.resolve()  # Resolve to absolute path
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        
+        logger.debug(f"Agent logger initialized - log_dir: {self.log_dir} (test_mode: {is_test})")
         
         # Create session-specific log files with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

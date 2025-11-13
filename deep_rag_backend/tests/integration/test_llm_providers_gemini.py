@@ -19,7 +19,7 @@ class TestGeminiConnectivity:
     def test_gemini_connectivity(self):
         """Test Gemini-specific connectivity."""
         test_message = [{"role": "user", "content": "Hello"}]
-        response = call_llm(
+        response, token_info = call_llm(
             system="You are a helpful assistant.",
             messages=test_message,
             max_tokens=20
@@ -27,4 +27,6 @@ class TestGeminiConnectivity:
         assert response is not None
         assert len(response) > 0
         assert isinstance(response, str)
+        assert isinstance(token_info, dict)
+        assert "total_tokens" in token_info
 

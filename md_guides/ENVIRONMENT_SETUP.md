@@ -8,19 +8,60 @@ Create a `.env` file in the project root with the following variables:
 
 ```bash
 # =============================================================================
-# DATABASE CONFIGURATION
+# Deep RAG Backend - Environment Configuration
+# =============================================================================
+# This file contains environment variables specific to the Backend API service.
+# The backend provides FastAPI endpoints for document ingestion and querying.
+#
+# Copy this file to .env and fill in your values:
+#   cp .env.example .env
 # =============================================================================
 
-# PostgreSQL with pgvector
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+# Database connection settings for PostgreSQL with pgvector extension.
+# The backend connects to the database to store and retrieve document embeddings.
+
 DB_HOST=localhost
 DB_PORT=5432
-DB_USER=user_here
-DB_PASS=password_here
-DB_NAME=ragdb
+DB_USER=rag
+DB_PASS=rag
+DB_NAME=deep_rag_db
+
+# =============================================================================
+# OPTIONAL CONFIGURATION
+# =============================================================================
+
+# Run tests on backend startup
+# Set to true to run database schema tests when backend container starts
+RUN_TESTS_ON_STARTUP=false
+AUTOMATE_ENDPOINT_RUNS_ON_BOOT=false
+
+# =============================================================================
+# EMBEDDING CONFIGURATION - Multi-modal embedding model settings for document and image embeddings.
+# =============================================================================
+
+# CLIP Model Selection
+#   - sentence-transformers/clip-ViT-L-14 (RECOMMENDED) - 768 dimensions, better quality
+#   - sentence-transformers/clip-ViT-B-32 - 512 dimensions, faster performance
+# CLIP_MODEL=sentence-transformers/clip-ViT-L-14
+CLIP_MODEL=openai/clip-vit-large-patch14-336
+CLIP_MODEL_PATH=/app/models/{CLIP_MODEL}
+
+# Reranker model (chunk reranker)
+RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+RERANK_MODEL_PATH=/app/models/{RERANK_MODEL}
+
+# Embedding Dimensions (must match CLIP model)
+#   - 768 for CLIP-ViT-L-14
+#   - 512 for CLIP-ViT-B-32
+EMBEDDING_DIM=768
 
 # =============================================================================
 # LLM CONFIGURATION
 # =============================================================================
+# Language Model provider settings for agentic reasoning and query processing.
 
 # LLM Provider (currently supports: gemini, openai, ollama)
 LLM_PROVIDER=gemini
@@ -28,77 +69,80 @@ LLM_PROVIDER=gemini
 # Google Gemini Configuration
 GEMINI_API_KEY=your_gemini_api_key_here
 
-# Gemini Model Selection (Recommended models in order of preference):
-# 1. gemini-1.5-flash (RECOMMENDED)
-#    - Context: 1M tokens
-#    - Speed: Fast
-#    - Quality: Excellent reasoning
-#    - Use: Production RAG with large documents
-#
-# 2. gemini-2.0-flash (LATEST)
-#    - Context: 1M tokens
-#    - Speed: Fast with improved performance
-#    - Quality: Latest improvements
-#    - Use: Production with latest capabilities
-#
-# 3. gemini-2.5-flash-lite (LIGHTWEIGHT)
-#    - Context: Limited
-#    - Speed: Very fast
-#    - Quality: Good for simple queries
-#    - Use: Development, cost-constrained environments
-#    - Note: May struggle with complex multi-step reasoning
+# Gemini Model Selection
+# Recommended models:
+#   - gemini-1.5-flash (RECOMMENDED) - 1M token context, fast, excellent reasoning
+#   - gemini-2.0-flash (LATEST) - 1M token context, improved performance
+#   - gemini-2.5-flash-lite (LIGHTWEIGHT) - Limited context, very fast
+GEMINI_MODEL=gemini-2.0-flash
 
-GEMINI_MODEL=gemini-1.5-flash
 
 # LLM Temperature (0.0 = deterministic, 1.0 = creative)
-LLM_TEMPERATURE=0.2
+# Lower values (0.1-0.3) are recommended for RAG applications
+LLM_TEMPERATURE=0.15
 
 # =============================================================================
-# EMBEDDING CONFIGURATION (Multi-Modal)
+# DO NOT TOUCH - FINE-TUNED RETRIEVAL/CONFIDENCE THRESHOLDS PARAMETERS
 # =============================================================================
 
-# CLIP Model Selection
-# 
-# Option 1: CLIP-ViT-L/14 (RECOMMENDED for Production)
-#   - Dimensions: 768
-#   - Quality: Better semantic representation
-#   - Model Size: ~400MB
-#   - Use Case: Production, high-quality retrieval
-#
-# Option 2: CLIP-ViT-B/32 (Legacy, Faster)
-#   - Dimensions: 512
-#   - Quality: Good, faster inference
-#   - Model Size: ~150MB
-#   - Use Case: Development, resource-constrained environments
+# Retrieval thresholds
+K_RETRIEVER=8
+K_CRITIC=6 
+K_LEX=60
+K_VEC=60
 
-CLIP_MODEL=sentence-transformers/clip-ViT-L-14
-EMBEDDING_DIM=768
+# Confidence scoring thresholds
+CONF_W0=-0.5          # Bias (less negative = higher base)
+CONF_W1=2.4           # max_rerank (reduced from 3.0)
+CONF_W2=1.1           # margin (reduced from 1.5)
+CONF_W3=1.6           # mean_cosine (reduced from 2.2)
+CONF_W4=-0.4          # cosine_std (more negative)
+CONF_W5=0.8           # cos_coverage (reduced from 1.0)
+CONF_W6=1.3           # bm25_norm (reduced from 1.5)
+CONF_W7=1.1           # term_coverage (reduced from 1.2)
+CONF_W8=0.6           # unique_page_frac (reduced from 0.8)
+CONF_W9=0.45          # doc_diversity (increased from 0.4)
+CONF_W10=1.25         # answer_overlap (reduced from 1.2)
 
-# For legacy/faster option:
-# CLIP_MODEL=sentence-transformers/clip-ViT-B-32
-# EMBEDDING_DIM=512
+# Decision thresholds
+CONF_ABSTAIN_TH=0.20  # 35%
+CONF_CLARIFY_TH=0.60  # 52%
+MAX_ITERS=3           # Increased for better convergence on complex multi-document queries
+THRESH=.30            # matches 50% CE/lex+vec heuristic (used by critic and synthesizer)
 
-# =============================================================================
-# OPTIONAL CONFIGURATION
-# =============================================================================
-
-# Project root (for path resolution in Docker)
-PROJECT_ROOT=/app
-
-# Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-LOG_LEVEL=INFO
-
-# Agent log directory (relative to backend root)
-# Production logs: inference/graph/logs/
-# Test logs: inference/graph/logs/test_logs/
-AGENT_LOG_DIR=inference/graph/logs
-
-# Run database schema tests on API container startup (true/false)
-RUN_TESTS_ON_STARTUP=false
-
-# Run endpoint tests after make up-and-test completes (true/false)
-AUTOMATE_ENDPOINT_RUNS_ON_BOOT=false
+# Synthesizer Confidence Thresholds (percentage, 0-100)
+# These control when the synthesizer abstains BEFORE calling the LLM
+# NOTE: These are OPTIONAL - if not set, defaults are used automatically
+SYNTHESIZER_CONFIDENCE_THRESHOLD_DEFAULT=40.0          # Default threshold for general queries
+                                                        # If not set, defaults to 40.0%
+SYNTHESIZER_CONFIDENCE_THRESHOLD_EXPLICIT_SELECTION=30.0  # Lower threshold when docs explicitly selected/attached
+                                                          # If not set, defaults to THRESH * 100 (30.0%)
+                                                          # DO NOT use {THRESH} placeholder - use numeric value (e.g., 30.0)
 ```
+
+## Synthesizer Confidence Thresholds
+
+The synthesizer uses confidence thresholds to determine whether to call the LLM or abstain early:
+
+- **`SYNTHESIZER_CONFIDENCE_THRESHOLD_DEFAULT`** (default: `40.0%`): Used for general queries and cross-document search without explicit document selection
+- **`SYNTHESIZER_CONFIDENCE_THRESHOLD_EXPLICIT_SELECTION`** (default: `THRESH * 100 = 30.0%`): Used when documents are explicitly selected (`selected_doc_ids`), attached (`uploaded_doc_ids`), or provided via `doc_id`
+
+**How it works:**
+- If confidence is below the threshold, the synthesizer abstains BEFORE calling the LLM (saves tokens)
+- If confidence is above the threshold, the LLM is called
+- The LLM can still return "I don't know" even if confidence is above threshold (detected by `citation_pruner`)
+
+**Threshold Selection Logic:**
+- Explicit selection threshold (30%) is used when:
+  - `selected_doc_ids` is provided (user selected documents in UI)
+  - `uploaded_doc_ids` is provided (user attached/uploaded documents)
+  - `doc_id` is provided (document from ingestion/previous query)
+  - AND `cross_doc=False` OR `cross_doc=True` with specific docs selected (hybrid mode)
+- Default threshold (40%) is used when:
+  - `cross_doc=True` AND no specific documents are selected
+  - No documents are explicitly provided
+
+**Note:** `SYNTHESIZER_CONFIDENCE_THRESHOLD_EXPLICIT_SELECTION` defaults to `THRESH * 100` (30.0%) if not explicitly set, ensuring consistency with the critic's chunk strength threshold.
 
 ## Configuration by Use Case
 

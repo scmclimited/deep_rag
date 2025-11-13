@@ -26,14 +26,19 @@ VECTOR_DB_DIR := vector_db
 
 help:
 	@echo ""
-	@echo "Deep RAG — Root Project Commands"
+	@echo "Deep RAG - Root Project Commands"
 	@echo "================================="
 	@echo ""
 	@echo "Full Stack Orchestration:"
 	@echo "  make up              # Start all services (db + api + frontend)"
 	@echo "  make up-and-test     # Start all services, then run tests"
-	@echo "  make down            # Stop all services and remove containers/volumes"
-	@echo "  make logs             # Tail logs from all services"
+	@echo "  make down            # Stop all services (keeps volumes - data persists)"
+	@echo "  make down-clean      # Stop all services and remove volumes (deletes data)"
+	@echo "  make logs [SERVICE=api] [TAIL=500] [OUTPUT=api_logs.txt] [FOLLOW=false]  # Capture service logs to file"
+	@echo "  make logs-api [TAIL=500] [OUTPUT=api_logs.txt] [FOLLOW=false]  # Capture API logs"
+	@echo "  make logs-db [TAIL=500] [OUTPUT=db_logs.txt] [FOLLOW=false]  # Capture DB logs"
+	@echo "  make logs-frontend [TAIL=500] [OUTPUT=frontend_logs.txt] [FOLLOW=false]  # Capture frontend logs"
+	@echo "  make logs-follow [TAIL=500]  # Follow all services logs in real-time"
 	@echo "  make rebuild          # Rebuild all images and restart stack"
 	@echo ""
 	@echo "Database Only:"
@@ -97,12 +102,52 @@ up-and-test: up
 	fi
 
 down:
-	@echo "Stopping all services..."
+	@echo "Stopping all services (keeping volumes - data will persist)..."
+	$(DC) down
+	@echo "All services stopped. Data is preserved in named volume 'deep_rag_db_data'."
+	@echo "To remove data and start fresh, use: make down-clean"
+
+down-clean:
+	@echo "Stopping all services and removing volumes (data will be deleted)..."
 	$(DC) down -v
-	@echo "All services stopped."
+	@echo "All services stopped and volumes removed."
+
+# Dynamic logs command - capture service logs to file
+# Usage: make logs SERVICE=api TAIL=500 OUTPUT=api_logs.txt
+# Usage: make logs SERVICE=api TAIL=500 FOLLOW=true
+SERVICE ?= api
+TAIL ?= 500
+FOLLOW ?= false
+OUTPUT ?=
 
 logs:
-	$(DC) logs -f
+	@if [ -z "$(OUTPUT)" ]; then \
+		OUTPUT_FILE="$(SERVICE)_logs.txt"; \
+	else \
+		OUTPUT_FILE="$(OUTPUT)"; \
+	fi; \
+	if [ "$(FOLLOW)" = "true" ]; then \
+		echo "Following logs from service '$(SERVICE)' (last $(TAIL) lines) to $$OUTPUT_FILE..."; \
+		$(DC) logs --tail=$(TAIL) -f $(SERVICE) | tee $$OUTPUT_FILE; \
+	else \
+		echo "Capturing logs from service '$(SERVICE)' (last $(TAIL) lines) to $$OUTPUT_FILE..."; \
+		$(DC) logs --tail=$(TAIL) $(SERVICE) > $$OUTPUT_FILE 2>&1; \
+		echo "Logs saved to $$OUTPUT_FILE"; \
+	fi
+
+# Convenience shortcuts for each service
+logs-api:
+	@$(MAKE) logs SERVICE=api TAIL=$(TAIL) OUTPUT=$(OUTPUT) FOLLOW=$(FOLLOW)
+
+logs-db:
+	@$(MAKE) logs SERVICE=db TAIL=$(TAIL) OUTPUT=$(OUTPUT) FOLLOW=$(FOLLOW)
+
+logs-frontend:
+	@$(MAKE) logs SERVICE=frontend TAIL=$(TAIL) OUTPUT=$(OUTPUT) FOLLOW=$(FOLLOW)
+
+# Follow logs in real-time (all services)
+logs-follow:
+	$(DC) logs -f --tail=$(TAIL)
 
 rebuild:
 	@echo "Rebuilding all images..."

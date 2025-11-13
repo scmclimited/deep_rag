@@ -5,6 +5,7 @@ import logging
 from inference.graph.state import GraphState
 from inference.graph.agent_logger import get_agent_logger
 from retrieval.retrieval import retrieve_hybrid
+from retrieval.document_structure import retrieve_by_document_structure
 import os
 
 from dotenv import load_dotenv
@@ -26,11 +27,22 @@ def node_retriever(state: GraphState) -> GraphState:
     logger.info("-" * 40)
     q = f"{state['question']}  {state.get('plan','')}"
     
-    # Handle multi-document selection or single doc_id
+    # Handle multi-document selection, uploaded documents, or single doc_id
     selected_doc_ids = state.get('selected_doc_ids')
+    uploaded_doc_ids = state.get('uploaded_doc_ids')
     doc_id = state.get('doc_id')
     
     cross_doc = state.get('cross_doc', False)
+    
+    # When uploaded_doc_ids is present:
+    # - If cross_doc=False: Scope to ONLY attached documents (like selected documents)
+    # - If cross_doc=True: Prioritize attached documents but allow cross-doc retrieval (HYBRID MODE)
+    # We don't force cross_doc=False here - we respect the user's cross_doc setting
+    if uploaded_doc_ids and len(uploaded_doc_ids) > 0:
+        if cross_doc:
+            logger.info(f"🔄 uploaded_doc_ids present ({len(uploaded_doc_ids)} document(s)) with cross_doc=True - will prioritize attached docs but allow cross-doc")
+        else:
+            logger.info(f"🔒 uploaded_doc_ids present ({len(uploaded_doc_ids)} document(s)) with cross_doc=False - will scope to ONLY attached documents")
     
     # CRITICAL: If cross_doc=False and selected_doc_ids is explicitly empty (user deselected all), return empty
     # Check this FIRST before determining doc_ids_to_filter
@@ -41,27 +53,38 @@ def node_retriever(state: GraphState) -> GraphState:
         return result
     
     # Determine which doc_ids to use for filtering
-    # Priority: selected_doc_ids (explicit user selection) > doc_id (from ingestion/previous query)
-    # If both are provided, combine them (user may have selected other docs in addition to ingested doc)
+    # Priority: selected_doc_ids (explicit user selection) > uploaded_doc_ids (attached docs) > doc_id (from ingestion/previous query)
+    # Combine all provided document IDs (user may have selected, attached, and ingested docs)
     doc_ids_to_filter = None
+    
+    # Start with selected_doc_ids if provided
     if selected_doc_ids and len(selected_doc_ids) > 0:
-        # User explicitly selected documents
         doc_ids_to_filter = list(selected_doc_ids)  # Make a copy to avoid modifying original
-        
-        # If doc_id is also provided and not already in selected_doc_ids, add it
-        # This handles the case where user ingested a doc AND selected other docs
-        if doc_id and doc_id not in doc_ids_to_filter:
+        logger.info(f"Starting with {len(doc_ids_to_filter)} selected document(s)")
+    
+    # Add uploaded_doc_ids if provided (attached documents)
+    if uploaded_doc_ids and len(uploaded_doc_ids) > 0:
+        if doc_ids_to_filter is None:
+            doc_ids_to_filter = []
+        for uploaded_id in uploaded_doc_ids:
+            if uploaded_id not in doc_ids_to_filter:
+                doc_ids_to_filter.append(uploaded_id)
+        logger.info(f"Added {len(uploaded_doc_ids)} uploaded document(s), total: {len(doc_ids_to_filter)} document(s)")
+    
+    # Add doc_id if provided and not already included
+    if doc_id:
+        if doc_ids_to_filter is None:
+            doc_ids_to_filter = [doc_id]
+            logger.info(f"Using doc_id: {doc_id[:8]}...")
+        elif doc_id not in doc_ids_to_filter:
             doc_ids_to_filter.append(doc_id)
-            logger.info(f"Combining selected_doc_ids with doc_id: {len(doc_ids_to_filter)} document(s) total")
-        
+            logger.info(f"Combining with doc_id: {len(doc_ids_to_filter)} document(s) total")
+    
+    if doc_ids_to_filter:
         if len(doc_ids_to_filter) > 1:
             logger.info(f"Multi-document selection: {len(doc_ids_to_filter)} document(s)")
         else:
-            logger.info(f"Filtering to document: {doc_ids_to_filter[0]}...")
-    elif doc_id:
-        # Fallback to doc_id if selected_doc_ids not provided
-        doc_ids_to_filter = [doc_id]
-        logger.info(f"Filtering to document: {doc_id}...")
+            logger.info(f"Filtering to document: {doc_ids_to_filter[0][:8]}...")
     
     # CRITICAL: If cross_doc=False and no doc_ids_to_filter (no documents specified), return empty
     # Only search all documents when cross_doc=True
@@ -87,10 +110,41 @@ def node_retriever(state: GraphState) -> GraphState:
         # First, retrieve from selected documents (higher k for better coverage)
         selected_hits = []
         for selected_doc in doc_ids_to_filter:
-            logger.info(f"  Retrieving from selected document: {selected_doc}...")
+            logger.info(f"  Retrieving from selected document: {selected_doc[:8]}...")
             doc_hits = retrieve_hybrid(q, k, k_lex, k_vec, doc_id=selected_doc, cross_doc=False)
             selected_hits.extend(doc_hits)
-            logger.info(f"    Found {len(doc_hits)} chunks")
+            logger.info(f"    Found {len(doc_hits)} chunks via similarity search")
+            
+            # Check if similarity is poor and supplement with structure-based retrieval
+            has_good_similarity = any(
+                h.get("ce", 0) > 0.3 or
+                (h.get("lex", 0) > 0 and h.get("vec", 0) > 0.6) or
+                h.get("vec", 0) > 0.7
+                for h in doc_hits
+            )
+            
+            logger.info(f"    Similarity check: has_good_similarity={has_good_similarity}, "
+                       f"top_scores: ce={max((h.get('ce', 0) for h in doc_hits), default=0):.3f}, "
+                       f"vec={max((h.get('vec', 0) for h in doc_hits), default=0):.3f}, "
+                       f"lex={max((h.get('lex', 0) for h in doc_hits), default=0):.3f}")
+            
+            if not has_good_similarity:
+                logger.info(f"    Similarity results poor - supplementing with structure-based retrieval")
+                structure_hits = retrieve_by_document_structure(
+                    doc_id=selected_doc,
+                    max_chunks=15,
+                    strategy="first_pages"
+                )
+                
+                # Merge structure hits with similarity hits (deduplicate by chunk_id)
+                seen_chunk_ids = {h["chunk_id"] for h in doc_hits}
+                for struct_hit in structure_hits:
+                    if struct_hit["chunk_id"] not in seen_chunk_ids:
+                        selected_hits.append(struct_hit)
+                        seen_chunk_ids.add(struct_hit["chunk_id"])
+                        logger.debug(f"      Added structure chunk: page {struct_hit.get('p0')}")
+                
+                logger.info(f"    Total after structure supplement: {len([h for h in selected_hits if h.get('doc_id') == selected_doc])} chunks")
         
         # Remove duplicates from selected hits
         seen_selected = set()
@@ -138,7 +192,50 @@ def node_retriever(state: GraphState) -> GraphState:
             logger.info(f"  Retrieving from selected document: {doc[:8]}...")
             doc_hits = retrieve_hybrid(q, k, k_lex, k_vec, doc_id=doc, cross_doc=False)
             all_hits.extend(doc_hits)
-            logger.info(f"    Found {len(doc_hits)} chunks")
+            logger.info(f"    Found {len(doc_hits)} chunks via similarity search")
+            
+            # ENHANCEMENT: For explicit document selection with ambiguous queries,
+            # supplement with structure-based retrieval if similarity results are poor
+            # Check if we have good similarity scores - require stronger signals to avoid false positives
+            # A good match requires:
+            #   - Positive CE score (> 0.3) OR
+            #   - Both lexical AND vector match (lex > 0 AND vec > 0.6) OR  
+            #   - Very high vector score alone (> 0.7)
+            # This prevents false positives from marginal vector matches (e.g., 0.607) with negative CE scores
+            has_good_similarity = any(
+                h.get("ce", 0) > 0.3 or  # Good cross-encoder score
+                (h.get("lex", 0) > 0 and h.get("vec", 0) > 0.6) or  # Both lexical and vector match
+                h.get("vec", 0) > 0.7  # Very high vector score alone
+                for h in doc_hits
+            )
+            
+            # Log similarity check for debugging
+            logger.info(f"    Similarity check: has_good_similarity={has_good_similarity}, "
+                       f"top_scores: ce={max((h.get('ce', 0) for h in doc_hits), default=0):.3f}, "
+                       f"vec={max((h.get('vec', 0) for h in doc_hits), default=0):.3f}, "
+                       f"lex={max((h.get('lex', 0) for h in doc_hits), default=0):.3f}")
+            
+            # If similarity is poor, supplement with structure-based retrieval
+            # Changed condition: trigger structure-based retrieval if similarity is poor, regardless of chunk count
+            # This is critical for ambiguous queries like "share details about this document"
+            # where similarity search may return many chunks but with poor scores
+            if not has_good_similarity:
+                logger.info(f"    Similarity results poor (has_good_similarity=False) - supplementing with structure-based retrieval")
+                structure_hits = retrieve_by_document_structure(
+                    doc_id=doc,
+                    max_chunks=15,  # Get more chunks for document analysis
+                    strategy="first_pages"  # Start with first pages for overview
+                )
+                
+                # Merge structure hits with similarity hits (deduplicate by chunk_id)
+                seen_chunk_ids = {h["chunk_id"] for h in doc_hits}
+                for struct_hit in structure_hits:
+                    if struct_hit["chunk_id"] not in seen_chunk_ids:
+                        all_hits.append(struct_hit)
+                        seen_chunk_ids.add(struct_hit["chunk_id"])
+                        logger.debug(f"      Added structure chunk: page {struct_hit.get('p0')}")
+                
+                logger.info(f"    Total after structure supplement: {len([h for h in all_hits if h.get('doc_id') == doc])} chunks")
 
         # Deduplicate chunk hits and filter to only selected documents (safety check)
         seen = set()

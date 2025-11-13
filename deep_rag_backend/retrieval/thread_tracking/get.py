@@ -67,7 +67,8 @@ def _safe_json_load(field_name: str, value: Union[str, bytes, bytearray, Dict[st
 def get_thread_interactions(
     user_id: Optional[str] = None,
     thread_id: Optional[str] = None,
-    limit: int = 100
+    limit: int = 100,
+    include_archived: bool = False
 ) -> List[Dict[str, Any]]:
     """
     Retrieve thread interactions from the database.
@@ -95,6 +96,25 @@ def get_thread_interactions(
                 conditions.append("thread_id = %s")
                 params.append(thread_id)
                 logger.info(f"get_thread_interactions: Added condition thread_id='{thread_id}'")
+            
+            # Filter threads based on archived status
+            if include_archived:
+                # When include_archived=True, return ONLY archived threads
+                conditions.append("""
+                    (metadata IS NOT NULL AND 
+                     metadata::text != 'null' AND 
+                     metadata::text != '{}' AND
+                     (metadata::jsonb->>'archived')::boolean = true)
+                """)
+            else:
+                # When include_archived=False, return ONLY non-archived threads
+                conditions.append("""
+                    (metadata IS NULL OR 
+                     metadata::text = 'null' OR 
+                     metadata::text = '{}' OR
+                     (metadata::jsonb->>'archived')::boolean IS NULL OR
+                     (metadata::jsonb->>'archived')::boolean = false)
+                """)
             
             where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
             params.append(limit)

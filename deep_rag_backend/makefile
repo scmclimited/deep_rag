@@ -11,12 +11,17 @@ OUT ?= inference/graph/artifacts/deep_rag_graph.png
 
 help:
 	@echo ""
-	@echo "Deep RAG — common commands"
+	@echo "Deep RAG - common commands"
 	@echo "---------------------------"
 	@echo "make up            # build & start API + DB via root docker-compose.yml"
 	@echo "make up-and-test   # build & start API + DB, then run tests to verify setup (optionally runs endpoint tests if AUTOMATE_ENDPOINT_RUNS_ON_BOOT=true)"
-	@echo "make down          # stop and remove containers/volumes"
-	@echo "make logs          # tail API + DB logs"
+	@echo "make down          # stop services (keeps volumes - data persists)"
+	@echo "make down-clean    # stop services and remove volumes (deletes data)"
+	@echo "make logs [SERVICE=api] [TAIL=500] [OUTPUT=api_logs.txt] [FOLLOW=false]  # Capture service logs to file"
+	@echo "make logs-api [TAIL=500] [OUTPUT=api_logs.txt] [FOLLOW=false]  # Capture API logs"
+	@echo "make logs-db [TAIL=500] [OUTPUT=db_logs.txt] [FOLLOW=false]  # Capture DB logs"
+	@echo "make logs-frontend [TAIL=500] [OUTPUT=frontend_logs.txt] [FOLLOW=false]  # Capture frontend logs"
+	@echo "make logs-follow [TAIL=500]  # Follow all services logs in real-time"
 	@echo "make rebuild       # rebuild API image and restart stack"
 	@echo "make db-up         # start DB only (vector_db/docker-compose.yml)"
 	@echo "make db-down       # stop DB-only stack"
@@ -63,10 +68,52 @@ up-and-test: up
 	fi
 
 down:
+	@echo "Stopping services (keeping volumes - data will persist)..."
+	$(DC) -f ../docker-compose.yml down
+	@echo "Services stopped. Data is preserved in named volume 'deep_rag_db_data'."
+	@echo "To remove data and start fresh, use: make down-clean"
+
+down-clean:
+	@echo "Stopping services and removing volumes (data will be deleted)..."
 	$(DC) -f ../docker-compose.yml down -v
+	@echo "Services stopped and volumes removed."
+
+# Dynamic logs command - capture service logs to file
+# Usage: make logs SERVICE=api TAIL=500 OUTPUT=api_logs.txt
+# Usage: make logs SERVICE=api TAIL=500 FOLLOW=true
+SERVICE ?= api
+TAIL ?= 500
+FOLLOW ?= false
+OUTPUT ?=
 
 logs:
-	$(DC) -f ../docker-compose.yml logs -f
+	@if [ -z "$(OUTPUT)" ]; then \
+		OUTPUT_FILE="$(SERVICE)_logs.txt"; \
+	else \
+		OUTPUT_FILE="$(OUTPUT)"; \
+	fi; \
+	if [ "$(FOLLOW)" = "true" ]; then \
+		echo "Following logs from service '$(SERVICE)' (last $(TAIL) lines) to $$OUTPUT_FILE..."; \
+		$(DC) -f ../docker-compose.yml logs --tail=$(TAIL) -f $(SERVICE) | tee $$OUTPUT_FILE; \
+	else \
+		echo "Capturing logs from service '$(SERVICE)' (last $(TAIL) lines) to $$OUTPUT_FILE..."; \
+		$(DC) -f ../docker-compose.yml logs --tail=$(TAIL) $(SERVICE) > $$OUTPUT_FILE 2>&1; \
+		echo "✓ Logs saved to $$OUTPUT_FILE"; \
+	fi
+
+# Convenience shortcuts for each service
+logs-api:
+	@$(MAKE) logs SERVICE=api TAIL=$(TAIL) OUTPUT=$(OUTPUT) FOLLOW=$(FOLLOW)
+
+logs-db:
+	@$(MAKE) logs SERVICE=db TAIL=$(TAIL) OUTPUT=$(OUTPUT) FOLLOW=$(FOLLOW)
+
+logs-frontend:
+	@$(MAKE) logs SERVICE=frontend TAIL=$(TAIL) OUTPUT=$(OUTPUT) FOLLOW=$(FOLLOW)
+
+# Follow logs in real-time (all services)
+logs-follow:
+	$(DC) -f ../docker-compose.yml logs -f --tail=$(TAIL)
 
 rebuild:
 	$(DC) -f ../docker-compose.yml build --no-cache
@@ -315,17 +362,17 @@ test:
 unit-tests:
 	@echo "Running unit tests..."
 	@if [ "$(DOCKER)" = "true" ]; then \
-		docker compose -f ../docker-compose.yml exec api python -m pytest tests/unit/ -v; \
+		docker compose -f ../docker-compose.yml exec -e AGENT_LOG_TEST_MODE=true api python -m pytest tests/unit/ -v; \
 	else \
-		$(PY) -m pytest tests/unit/ -v; \
+		AGENT_LOG_TEST_MODE=true $(PY) -m pytest tests/unit/ -v; \
 	fi
 
 integration-tests:
 	@echo "Running integration tests..."
 	@if [ "$(DOCKER)" = "true" ]; then \
-		docker compose -f ../docker-compose.yml exec api python -m pytest tests/integration/ -v; \
+		docker compose -f ../docker-compose.yml exec -e AGENT_LOG_TEST_MODE=true api python -m pytest tests/integration/ -v; \
 	else \
-		$(PY) -m pytest tests/integration/ -v; \
+		AGENT_LOG_TEST_MODE=true $(PY) -m pytest tests/integration/ -v; \
 	fi
 
 # --- Endpoint Testing ---

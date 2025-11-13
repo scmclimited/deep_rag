@@ -1,10 +1,10 @@
 # === Core AI & Embedding Models ===
-sentence-transformers==3.0.1  # Required: CLIP embeddings for multi-modal support
-open-clip-torch==2.28.0       # Required: CLIP model support
+sentence-transformers==3.0.1  # Required: CrossEncoder reranker (NOT for CLIP - CLIP uses transformers library)
+# open-clip-torch==2.28.0       # Optional: Alternative CLIP implementation (not currently used - we use transformers CLIPModel)
 numpy>=1.26.0                 # Required: Vector operations
-# transformers[torch]==4.42.0   # Required: Sentence transformers dependency
-# torch>=2.0.0                  # Required: PyTorch backend for transformers
-transformers==4.42.0          # transformers only; torch already provided by image/Dockerfile
+# transformers[torch]==4.42.0   # Note: transformers includes torch dependencies
+# torch>=2.0.0                  # Required: PyTorch backend for transformers (provided by Docker image)
+transformers==4.42.0          # Required: CLIP embeddings (CLIPModel/CLIPProcessor) for multi-modal support
 
 
 # === Database Layer (pgvector + Postgres) ===

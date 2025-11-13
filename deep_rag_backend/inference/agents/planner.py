@@ -26,7 +26,7 @@ def planner(state: State) -> State:
     prompt = f"""You are a planner. Decompose the user's question into 1-3 concrete sub-goals
 that can be answered ONLY from the provided context. Prefer explicit nouns and constraints.
 Question: {state['question']}{doc_context}"""
-    plan = call_llm("You plan tasks for the given question.", [{"role":"user","content":prompt}], max_tokens=350)
+    plan, _ = call_llm("You plan tasks for the given question.", [{"role":"user","content":prompt}], max_tokens=350)
     state["plan"] = plan.strip()
     
     logger.info(f"Generated Plan: {state['plan']}")

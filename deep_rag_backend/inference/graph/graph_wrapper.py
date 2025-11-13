@@ -6,7 +6,7 @@ from typing import Optional, List, Dict
 logger = logging.getLogger(__name__)
 
 def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[str] = None, 
-                  selected_doc_ids: Optional[list[str]] = None, cross_doc: bool = False) -> dict:
+                  selected_doc_ids: Optional[list[str]] = None, uploaded_doc_ids: Optional[list[str]] = None, cross_doc: bool = False) -> dict:
     """
     Query using LangGraph pipeline with conditional routing.
     
@@ -76,11 +76,19 @@ def ask_with_graph(question: str, thread_id: str = "default", doc_id: Optional[s
         "doc_ids": [],
         "cross_doc": cross_doc,
         "doc_id": None,  # Explicitly clear to prevent using persisted doc_id
-        "selected_doc_ids": None  # Explicitly clear to prevent using persisted selected_doc_ids
+        "selected_doc_ids": None,  # Explicitly clear to prevent using persisted selected_doc_ids
+        "uploaded_doc_ids": None  # Explicitly clear to prevent using persisted uploaded_doc_ids
     }
-    # Set doc_id and selected_doc_ids based on doc_ids_to_use
+    # Set doc_id, selected_doc_ids, and uploaded_doc_ids based on inputs
     # CRITICAL: Explicitly set these values to override any persisted state from previous queries
     # LangGraph merges initial_state with persisted state, so we must explicitly set values
+    
+    # Set uploaded_doc_ids if provided (attached documents)
+    if uploaded_doc_ids and len(uploaded_doc_ids) > 0:
+        initial_state["uploaded_doc_ids"] = uploaded_doc_ids
+        logger.info(f"Setting uploaded_doc_ids in initial state: {len(uploaded_doc_ids)} document(s)")
+    
+    # Set doc_id and selected_doc_ids based on doc_ids_to_use
     if doc_ids_to_use and len(doc_ids_to_use) > 0:
         initial_state["doc_id"] = doc_ids_to_use[0]
         initial_state["selected_doc_ids"] = doc_ids_to_use  # New multi-document support

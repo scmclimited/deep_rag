@@ -11,13 +11,12 @@ services:
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
-      # Use new multi-modal schema for fresh start
+      # Schema initialization (only runs on first start if volume is empty)
       - ./schema_multimodal.sql:/docker-entrypoint-initdb.d/01_schema_multimodal.sql
-      # Keep migration script for future testing (optional)
-      - ./migration_add_multimodal.sql:/docker-entrypoint-initdb.d/02_migration_add_multimodal.sql
-      # Named volume for persistent data (remove to start fresh)
-      # Uncomment to persist data across container restarts:
-      # - deep_rag_db_data:/var/lib/postgresql/data
+      # Named volume for persistent data - data persists across container rebuilds
+      # To start fresh, use: docker compose down -v (removes volume)
+      # To keep data, use: docker compose down (keeps volume)
+      - deep_rag_db_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 5s

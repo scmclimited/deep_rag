@@ -45,7 +45,7 @@ class TestCritic:
     def test_critic_low_confidence_triggers_refinement(self, mock_call_llm, mock_retrieve):
         """Test critic with low confidence triggers refinement."""
         # Mock returns strong chunks after refinement to stop recursion
-        mock_call_llm.return_value = "What are the specific requirements?"
+        mock_call_llm.return_value = ("What are the specific requirements?", {"input_tokens": 15, "output_tokens": 5, "total_tokens": 20})
         # First call returns weak chunks, subsequent calls return strong chunks to stop recursion
         mock_retrieve.side_effect = [
             [{"chunk_id": "2", "text": "New evidence", "ce": 0.3, "lex": 0.2, "vec": 0.3, "p0": 2, "p1": 2}],
@@ -106,7 +106,7 @@ class TestCritic:
         """Test critic with doc_id filter."""
         # Use UUID format for doc_id
         test_doc_id = "550e8400-e29b-41d4-a716-446655440000"
-        mock_call_llm.return_value = "Refinement query"
+        mock_call_llm.return_value = ("Refinement query", {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12})
         # Return strong chunks after first refinement to stop recursion
         mock_retrieve.side_effect = [
             [],
@@ -140,7 +140,7 @@ class TestCritic:
     @patch('inference.agents.critic.call_llm')
     def test_critic_deduplicates_evidence(self, mock_call_llm, mock_retrieve):
         """Test that critic deduplicates evidence by chunk_id."""
-        mock_call_llm.return_value = "Refinement query"
+        mock_call_llm.return_value = ("Refinement query", {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12})
         mock_retrieve.return_value = [
             {"chunk_id": "1", "text": "Duplicate", "ce": 0.3, "lex": 0.2, "vec": 0.3, "p0": 1, "p1": 1}
         ]

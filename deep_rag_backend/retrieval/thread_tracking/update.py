@@ -3,7 +3,7 @@ Update thread interactions in the database.
 """
 import json
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from retrieval.db_utils import connect
 
@@ -69,3 +69,85 @@ def update_thread_interaction(
         logger.error(f"Failed to update thread interaction: {e}", exc_info=True)
         return False
 
+
+def archive_thread(thread_id: str, user_id: str, archived: bool = True) -> bool:
+    """
+    Archive or unarchive a thread by updating all its interactions' metadata.
+    
+    Args:
+        thread_id: Thread ID to archive/unarchive
+        user_id: User ID (for security - only archive user's own threads)
+        archived: True to archive, False to unarchive
+        
+    Returns:
+        bool: True if update was successful
+    """
+    try:
+        with connect() as conn, conn.cursor() as cur:
+            # First, get existing metadata for all interactions in this thread
+            cur.execute("""
+                SELECT id, metadata
+                FROM thread_tracking
+                WHERE thread_id = %s AND user_id = %s
+            """, (thread_id, user_id))
+            
+            rows = cur.fetchall()
+            if not rows:
+                logger.warning(f"No threads found to archive: thread_id={thread_id}, user_id={user_id}")
+                return False
+            
+            # Update each interaction's metadata
+            updated_count = 0
+            for row in rows:
+                record_id = row[0]
+                existing_metadata = _safe_json_load("metadata", row[1]) or {}
+                
+                # Update archived status
+                existing_metadata["archived"] = archived
+                if archived:
+                    existing_metadata["archived_at"] = datetime.now().isoformat()
+                else:
+                    existing_metadata.pop("archived_at", None)
+                
+                # Update the record
+                cur.execute("""
+                    UPDATE thread_tracking
+                    SET metadata = %s
+                    WHERE id = %s
+                """, (json.dumps(existing_metadata), record_id))
+                updated_count += 1
+            
+            conn.commit()
+            logger.info(f"Archived/unarchived thread: thread_id={thread_id}, user_id={user_id}, archived={archived}, updated {updated_count} records")
+            return True
+    except Exception as e:
+        logger.error(f"Failed to archive thread: {e}", exc_info=True)
+        return False
+
+
+def _safe_json_load(field_name: str, value: Union[str, bytes, bytearray, Dict[str, Any], List[Any], None]) -> Optional[Any]:
+    """
+    Safely load JSON data that might already be decoded or stored as bytes.
+    """
+    if value is None:
+        return None
+    
+    if isinstance(value, (dict, list)):
+        return value
+    
+    if isinstance(value, (bytes, bytearray)):
+        try:
+            value = value.decode("utf-8")
+        except Exception:
+            return None
+    
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return json.loads(stripped)
+        except (json.JSONDecodeError, TypeError):
+            return stripped
+    
+    return value

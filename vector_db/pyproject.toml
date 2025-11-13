@@ -1,0 +1,9 @@
+[project]
+name = "deep-rag-vector-db"
+version = "0.1.0"
+description = "Vector DB service logging utilities"
+requires-python = ">=3.11"
+
+[project.scripts]
+logs = "scripts.logs:main"
+

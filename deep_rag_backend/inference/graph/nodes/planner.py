@@ -4,6 +4,7 @@ Planner node: Decomposes the question into sub-goals.
 import logging
 from inference.graph.state import GraphState
 from inference.graph.agent_logger import get_agent_logger
+from inference.graph.prompt_templates import format_template
 from inference.llm import call_llm
 
 logger = logging.getLogger(__name__)
@@ -34,10 +35,12 @@ def node_planner(state: GraphState) -> GraphState:
         doc_context = f"""\n\nNote: This question is about a specific document that was just ingested. 
         Document {doc_id} was used for this planning. Focus your planning on this document's content."""
     
-    prompt = f"""You are a planner. Decompose the user's question into 1-3 concrete sub-goals
-that can be answered ONLY from the provided assets such as PDFs, images, or other documents. Prefer explicit nouns and constraints.
-Question: {state['question']}{doc_context}"""
-    plan = call_llm("You plan tasks.", [{"role": "user", "content": prompt}], max_tokens=200, temperature=0.2)
+    prompt = format_template(
+        "planner",
+        question=state['question'],
+        doc_context=doc_context
+    )
+    plan, _ = call_llm("You plan tasks.", [{"role": "user", "content": prompt}], max_tokens=200, temperature=0.2)
     plan_text = plan.strip()
     
     logger.info(f"Generated Plan: {plan_text}")

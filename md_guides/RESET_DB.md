@@ -49,7 +49,7 @@ When you start fresh, PostgreSQL will:
 
 1. **Initialize the database** with the complete multi-modal schema from `schema_multimodal.sql`
 2. **Create tables** with:
-   - `emb` column as `vector(768)` (CLIP-ViT-L/14 embeddings)
+   - `emb` column as `vector(768)` (openai/clip-vit-large-patch14-336 embeddings)
    - `content_type` column for multi-modal support
    - `image_path` column for image chunks
    - `content_hash` column for duplicate detection
@@ -77,7 +77,7 @@ docker compose exec db psql -U ${DB_USER} -d ${DB_NAME}
 \d chunks
 
 # Should show:
-# - emb vector(768)  (CLIP-ViT-L/14)
+# - emb vector(768)  (openai/clip-vit-large-patch14-336)
 # - content_type text
 # - image_path text
 # - content_hash text (in documents table)

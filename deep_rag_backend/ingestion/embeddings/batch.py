@@ -26,7 +26,7 @@ def embed_batch(
         normalize_emb: Whether to normalize embedding vectors
         
     Returns:
-        Array of normalized embedding vectors (N x 768 for CLIP-ViT-L/14)
+        Array of normalized embedding vectors (N x 768 for openai/clip-vit-large-patch14-336)
     """
     embeddings = []
     

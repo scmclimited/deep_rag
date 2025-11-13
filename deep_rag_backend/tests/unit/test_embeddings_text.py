@@ -40,7 +40,7 @@ class TestEmbedText:
         
         assert result is not None
         assert isinstance(result, np.ndarray)
-        assert len(result) == 768  # CLIP-ViT-L/14 dimension
+        assert len(result) == 768  # openai/clip-vit-large-patch14-336 dimension
         mock_processor.assert_called_once()
         mock_model.get_text_features.assert_called_once()
     

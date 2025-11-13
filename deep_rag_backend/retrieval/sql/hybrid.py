@@ -9,7 +9,7 @@ def get_hybrid_sql(embedding_dim: int, doc_id: Optional[str] = None, doc_ids: Op
     Generate hybrid SQL query with optional doc_id filtering.
     
     Args:
-        embedding_dim: Embedding dimension (768 for CLIP-ViT-L/14, 512 for CLIP-ViT-B/32)
+        embedding_dim: Embedding dimension (768 for openai/clip-vit-large-patch14-336, 512 for CLIP-ViT-B/32)
         doc_id: Optional document ID to filter chunks to a specific document (backward compatibility)
         doc_ids: Optional list of document IDs to filter chunks (multi-document selection)
         

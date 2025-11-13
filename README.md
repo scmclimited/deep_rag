@@ -160,6 +160,7 @@ SYNTHESIZER_CONFIDENCE_THRESHOLD_EXPLICIT_SELECTION=30.0  # Lower threshold when
 
 # Retrieval Parameters
 K_RETRIEVER=8    # Number of final chunks to retrieve per document
+k_CRITIC=6    # Number of final chunks to retrieve per document
 K_LEX=60         # Top-K for lexical (BM25) search
 K_VEC=60         # Top-K for vector (semantic) search
 ```
@@ -426,11 +427,11 @@ docker-compose up -d
 
 | Layer | Description |
 |-------|--------------|
-| **Ingestion** | Multi-modal ingestion: PDFs (text + OCR), plain text files, and images (PNG/JPEG). Extracts text using PyMuPDF (`fitz`) with OCR fallback (`pytesseract`). Chunks and embeds with **CLIP-ViT-L/14** (`sentence-transformers/clip-ViT-L-14`) into unified **768-dimensional vectors** in Postgres + pgvector. **Upgraded from ViT-B/32 (512 dims)** for better semantic representation. |
+| **Ingestion** | Multi-modal ingestion: PDFs (text + OCR), plain text files, and images (PNG/JPEG). Extracts text using PyMuPDF (`fitz`) with OCR fallback (`pytesseract`). Chunks and embeds with **openai/clip-vit-large-patch14-336** (`openai/clip-vit-large-patch14-336`) into unified **768-dimensional vectors** in Postgres + pgvector. **Upgraded from ViT-B/32 (512 dims)** for better semantic representation. |
 | **Retrieval** | Hybrid search combining pg_trgm (BM25-style) lexical scores + vector similarity (cosine distance). Reranked by a cross-encoder (`bge-reranker-base`). Supports multi-modal queries (text + images). Dynamically supports 512 or 768 dimensional embeddings. **Supports two-stage retrieval with `--cross-doc` flag** for cross-document semantic search. |
 | **Agentic Loop** | Two pipeline options: (1) **Direct pipeline** (`deep_rag_backend/inference/agents/pipeline.py`): Linear execution (plan → retrieve → compress → reflect → synthesize). (2) **LangGraph pipeline** (`deep_rag_backend/inference/graph/builder.py`): Conditional routing with iterative refinement - agents can refine queries and retrieve more evidence when confidence < threshold. **Includes comprehensive logging** to CSV/TXT for future SFT training. |
 | **LLM Integration** | Currently using **Google Gemini** for agentic reasoning. **Recommended models**: `gemini-1.5-flash` (1M token context, best balance) or `gemini-2.0-flash` (latest, improved reasoning). Alternative: `gemini-2.5-flash-lite` for faster, lightweight processing. Code structure supports future integration with OpenAI, Ollama, and LLaVA. |
-| **Multi-modal Support** | Unified embedding space for text and images using CLIP-ViT-L/14 (768 dims), enabling semantic search across different content types with better representation than ViT-B/32. |
+| **Multi-modal Support** | Unified embedding space for text and images using openai/clip-vit-large-patch14-336 (768 dims), enabling semantic search across different content types with better representation than ViT-B/32. |
 | **Cross-Document Retrieval** | **NEW**: `--cross-doc` flag enables two-stage retrieval. When `doc_id` is provided: Stage 1 retrieves from the specified document, Stage 2 uses combined query (original + retrieved content) for semantic search across all documents. When no `doc_id`: Enables general cross-document semantic search. Results are merged and deduplicated. |
 | **Document Context** | Document ID (`doc_id`) tracking throughout the pipeline. Enables document-specific filtering, context-aware planning and synthesis, and automatic document identification from retrieved chunks. |
 | **Thread Tracking** | **NEW**: Comprehensive audit logging via `thread_tracking` table. Tracks user interactions, thread sessions, document retrievals, pipeline states, and entry points for SFT/RLHF training and analysis. See [`md_guides/THREAD_TRACKING_AND_AUDIT.md`](md_guides/THREAD_TRACKING_AND_AUDIT.md). |
@@ -1013,21 +1014,21 @@ curl "http://localhost:5173/api/diagnostics/document"
 
 # 🧠 Multi-Modal Embedding Model
 
-## Current Model: CLIP-ViT-L/14
+## Current Model: openai/clip-vit-large-patch14-336
 
-Deep RAG uses **CLIP-ViT-L/14** (`sentence-transformers/clip-ViT-L-14`) for multi-modal embeddings, providing a unified vector space for both text and images.
+Deep RAG uses **openai/clip-vit-large-patch14-336** (`openai/clip-vit-large-patch14-336`) for multi-modal embeddings, providing a unified vector space for both text and images.
 
 ### Model Specifications
 
-| Property | CLIP-ViT-L/14 (Current) | CLIP-ViT-B/32 (Legacy) |
+| Property | openai/clip-vit-large-patch14-336 (Current) | CLIP-ViT-B/32 (Legacy) |
 |----------|-------------------------|------------------------|
 | **Embedding Dimensions** | **768** | 512 |
 | **Max Token Length** | 77 tokens | 77 tokens |
 | **Performance** | **Better semantic representation** | Faster, lower memory |
-| **Model Size** | ~400MB | ~150MB |
+| **Model Size** | ~1.7 GB | ~150MB |
 | **Use Case** | Production, high-quality retrieval | Development, resource-constrained |
 
-### Why CLIP-ViT-L/14?
+### Why openai/clip-vit-large-patch14-336?
 
 1. **Higher Dimensions (768 vs 512)**: More dimensional space = better semantic representation and retrieval accuracy
 2. **Multi-Modal**: Embeds text and images in the same vector space, enabling true multi-modal search
@@ -1040,12 +1041,12 @@ Deep RAG uses **CLIP-ViT-L/14** (`sentence-transformers/clip-ViT-L-14`) for mult
 Set via environment variables in `.env`:
 
 ```bash
-# Use CLIP-ViT-L/14 (768 dims, recommended)
-CLIP_MODEL=sentence-transformers/clip-ViT-L-14
+# Use openai/clip-vit-large-patch14-336 (768 dims, recommended)
+CLIP_MODEL=openai/clip-vit-large-patch14-336
 EMBEDDING_DIM=768
 
 # Or use CLIP-ViT-B/32 (512 dims, faster)
-# CLIP_MODEL=sentence-transformers/clip-ViT-B-32
+# CLIP_MODEL=transformers/clip-ViT-B-32
 # EMBEDDING_DIM=512
 ```
 
@@ -1091,8 +1092,8 @@ Set in `.env`:
 ```bash
 LLM_PROVIDER=gemini
 GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-1.5-flash  # Recommended
-LLM_TEMPERATURE=0.2
+GEMINI_MODEL=gemini-2.0-flash  # Recommended
+LLM_TEMPERATURE=0.15
 ```
 
 For detailed LLM setup and provider selection rationale, see [`md_guides/LLM_SETUP.md`](md_guides/LLM_SETUP.md).
@@ -1441,11 +1442,11 @@ Deep RAG includes comprehensive logging of all agentic reasoning steps for:
 Logs are automatically saved to `deep_rag_backend/inference/graph/logs/` with timestamps:
 
 ```
-deep_rag_backend/inference/graph/logs/
+deep_rag_backend/inference/graph/logs/dev
 ├── agent_log_20250106_143052.csv  # Production logs (structured data for training)
 └── agent_log_20250106_143052.txt  # Production logs (human-readable for presentations)
 
-deep_rag_backend/inference/graph/logs/test_logs/  # Test logs directory (ignored by git)
+deep_rag_backend/inference/graph/logs/test/  # Test logs directory (ignored by git)
 ├── agent_log_20250106_143052.csv  # Test logs (structured data for training)
 └── agent_log_20250106_143052.txt  # Test logs (human-readable for presentations)
 ```

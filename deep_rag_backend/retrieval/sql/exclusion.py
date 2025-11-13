@@ -9,7 +9,7 @@ def get_hybrid_sql_with_exclusion(embedding_dim: int, exclude_doc_id: Optional[s
     Generate hybrid SQL query with optional doc_id exclusion.
     
     Args:
-        embedding_dim: Embedding dimension (768 for CLIP-ViT-L/14, 512 for CLIP-ViT-B/32)
+        embedding_dim: Embedding dimension (768 for openai/clip-vit-large-patch14-336, 512 for CLIP-ViT-B/32)
         exclude_doc_id: Optional document ID to exclude from results
         
     Returns:

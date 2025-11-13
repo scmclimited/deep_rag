@@ -60,15 +60,6 @@ def semantic_chunks_text(text: str, max_words=25, overlap=12):
     
     return chunks
 
-def upsert_document(cur, title, path):
-    """Insert or update document record."""
-    did = uuid4()
-    cur.execute(
-        "INSERT INTO documents (doc_id, title, source_path) VALUES (%s,%s,%s)",
-        (str(did), title, path)
-    )
-    return str(did)
-
 def upsert_chunks(cur, doc_id, chunks):
     """Insert chunks with embeddings."""
     logger.info(f"Upserting {len(chunks)} chunks for document {doc_id}")
@@ -122,29 +113,28 @@ def ingest_text_file(text_path: str, title: str = None):
     
     # Insert into database
     with connect() as conn, conn.cursor() as cur:
-        # Check for duplicate before inserting
-        from ingestion.db_ops.document import calculate_content_hash
+        # Import the proper upsert_document function that handles content_hash
+        from ingestion.db_ops.document import calculate_content_hash, upsert_document
         content_hash = calculate_content_hash(text_path)
-        cur.execute(
-            """
-            SELECT doc_id FROM documents 
-            WHERE content_hash = %s AND title = %s
-            LIMIT 1
-            """,
-            (content_hash, title)
-        )
-        existing = cur.fetchone()
         
-        if existing:
-            # Duplicate found - return existing doc_id without re-inserting chunks
-            doc_id = existing[0]
+        # Check if this is a duplicate by trying to upsert
+        # upsert_document will return existing doc_id if duplicate found
+        doc_id = upsert_document(cur, title, text_path, content_hash)
+        
+        # Check if document already existed (by checking if chunks exist)
+        cur.execute(
+            "SELECT COUNT(*) FROM chunks WHERE doc_id = %s",
+            (doc_id,)
+        )
+        existing_chunks = cur.fetchone()[0]
+        
+        if existing_chunks > 0:
+            # Duplicate found - document and chunks already exist
             logger.info(f"Duplicate document found: doc_id={doc_id}, title={title}")
             logger.info(f"Using existing document: doc_id={doc_id}, title={title}")
         else:
-            # New document - insert document and chunks
-            doc_id = upsert_document(cur, title, text_path, content_hash)
+            # New document - insert chunks
             logger.info(f"Document inserted: doc_id={doc_id}, title={title}")
-            
             upsert_chunks(cur, doc_id, chunks)
             
             conn.commit()

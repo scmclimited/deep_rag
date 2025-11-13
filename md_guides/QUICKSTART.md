@@ -113,7 +113,7 @@ make up              # Start all services
 docker-compose up -d
 
 # Services will be available at:
-# - Frontend: http://localhost:8501
+# - Frontend: http://localhost:5173
 # - Backend API: http://localhost:8000
 # - Database: localhost:5432
 ```
@@ -159,7 +159,7 @@ docker-compose up -d
 cd deep_rag_frontend
 docker-compose up -d
 
-# Frontend: http://localhost:8501
+# Frontend: http:/localhost:5173
 # Note: Requires backend API to be running
 # Set API_BASE_URL in .env to point to backend
 ```
@@ -225,7 +225,7 @@ curl http://localhost:8000/health
 
 **Check Frontend:**
 ```bash
-curl http://localhost:8501/_stcore/health
+curl http://localhost:5173/health
 ```
 
 **Check Database:**
@@ -238,7 +238,7 @@ docker-compose exec db psql -U $DB_USER -d $DB_NAME -c "SELECT version();"
 
 Open your browser and navigate to:
 ```
-http://localhost:8501
+http://localhost:5173/
 ```
 
 ### 3. Upload a Document

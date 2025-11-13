@@ -2,14 +2,14 @@
 
 ## Current Implementation
 
-### Multi-Modal Embeddings: CLIP-ViT-L/14 (Recommended)
+### Multi-Modal Embeddings: openai/clip-vit-large-patch14-336 (Recommended)
 
-Deep RAG currently uses **CLIP-ViT-L/14** (`sentence-transformers/clip-ViT-L-14`) for multi-modal embeddings, providing a unified vector space for both text and images.
+Deep RAG currently uses **openai/clip-vit-large-patch14-336** (`openai/clip-vit-large-patch14-336`) for multi-modal embeddings, providing a unified vector space for both text and images.
 
-- **Model**: `sentence-transformers/clip-ViT-L-14`
+- **Model**: `openai/clip-vit-large-patch14-336`
 - **Type**: Multi-modal (text + images in same embedding space)
 - **Dimensions**: **768** (recommended for production)
-- **Runs**: Locally via `sentence-transformers`
+- **Runs**: Locally via `transformers`
 - **Use Case**: Production RAG applications with multi-modal support
 - **Advantages**:
   - ✅ True multi-modal (text + images in same embedding space)
@@ -48,7 +48,7 @@ For development or resource-constrained environments, you can use **CLIP-ViT-B/3
 
 ## Model Comparison
 
-| Property | CLIP-ViT-L/14 (Current) | CLIP-ViT-B/32 (Legacy) |
+| Property | openai/clip-vit-large-patch14-336 (Current) | CLIP-ViT-B/32 (Legacy) |
 |----------|-------------------------|------------------------|
 | **Embedding Dimensions** | **768** | 512 |
 | **Max Token Length** | 77 tokens | 77 tokens |
@@ -58,7 +58,7 @@ For development or resource-constrained environments, you can use **CLIP-ViT-B/3
 | **Multi-Modal** | ✅ Yes | ✅ Yes |
 | **Local Execution** | ✅ Yes | ✅ Yes |
 
-## Why CLIP-ViT-L/14?
+## Why openai/clip-vit-large-patch14-336?
 
 1. **Higher Dimensions (768 vs 512)**: More dimensional space = better semantic representation and retrieval accuracy
 2. **Multi-Modal**: Embeds text and images in the same vector space, enabling true multi-modal search
@@ -71,33 +71,14 @@ For development or resource-constrained environments, you can use **CLIP-ViT-B/3
 Set via environment variables in `.env`:
 
 ```bash
-# Use CLIP-ViT-L/14 (768 dims, recommended for production)
-CLIP_MODEL=sentence-transformers/clip-ViT-L-14
+# Use openai/clip-vit-large-patch14-336 (768 dims, recommended for production)
+CLIP_MODEL=openai/clip-vit-large-patch14-336
 EMBEDDING_DIM=768
 
 # Or use CLIP-ViT-B/32 (512 dims, faster, legacy)
 # CLIP_MODEL=sentence-transformers/clip-ViT-B-32
 # EMBEDDING_DIM=512
 ```
-
-## Migration
-
-### Upgrading from ViT-B/32 to ViT-L/14
-
-If you have an existing database with ViT-B/32 (512 dims), see `vector_db/migration_upgrade_to_768.sql` for migration steps.
-
-**Migration Steps**:
-1. Backup your database
-2. Run the migration script:
-   ```bash
-   docker compose exec db psql -U $DB_USER -d $DB_NAME -f /docker-entrypoint-initdb.d/migration_upgrade_to_768.sql
-   ```
-3. Update `.env`:
-   ```bash
-   CLIP_MODEL=sentence-transformers/clip-ViT-L-14
-   EMBEDDING_DIM=768
-   ```
-4. Re-ingest documents (old 512-dim embeddings won't work with 768-dim model)
 
 ### Downgrading from ViT-L/14 to ViT-B/32
 
@@ -131,7 +112,7 @@ pip install sentence-transformers
 
 ## Summary
 
-- **Current**: CLIP-ViT-L/14 (768 dims) is recommended for production ✅
+- **Current**: openai/clip-vit-large-patch14-336 (768 dims) is recommended for production ✅
 - **Legacy**: CLIP-ViT-B/32 (512 dims) available for development/resource-constrained environments
 - **Multi-Modal**: Both models support text + images in unified embedding space ✅
 - **No API dependency**: All models run locally ✅
@@ -139,6 +120,6 @@ pip install sentence-transformers
 
 ## Recommendation
 
-**For Production**: Use CLIP-ViT-L/14 (768 dims) for better semantic representation and retrieval quality.
+**For Production**: Use openai/clip-vit-large-patch14-336 (768 dims) for better semantic representation and retrieval quality.
 
 **For Development**: Use CLIP-ViT-B/32 (512 dims) if memory/speed is critical, but expect lower quality results.

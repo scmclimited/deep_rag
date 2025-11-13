@@ -43,9 +43,9 @@ AUTOMATE_ENDPOINT_RUNS_ON_BOOT=false
 # =============================================================================
 
 # CLIP Model Selection
-#   - sentence-transformers/clip-ViT-L-14 (RECOMMENDED) - 768 dimensions, better quality
+#   - openai/clip-vit-large-patch14-336 (RECOMMENDED) - 768 dimensions, better quality
 #   - sentence-transformers/clip-ViT-B-32 - 512 dimensions, faster performance
-# CLIP_MODEL=sentence-transformers/clip-ViT-L-14
+# CLIP_MODEL=openai/clip-vit-large-patch14-336
 CLIP_MODEL=openai/clip-vit-large-patch14-336
 CLIP_MODEL_PATH=/app/models/{CLIP_MODEL}
 
@@ -149,7 +149,7 @@ The synthesizer uses confidence thresholds to determine whether to call the LLM 
 ### Production Setup (High Quality)
 ```bash
 # Best quality retrieval and reasoning
-CLIP_MODEL=sentence-transformers/clip-ViT-L-14
+CLIP_MODEL=openai/clip-vit-large-patch14-336
 EMBEDDING_DIM=768
 GEMINI_MODEL=gemini-1.5-flash
 LLM_TEMPERATURE=0.2
@@ -191,7 +191,7 @@ docker compose exec db psql -U $DB_USER -d $DB_NAME -f /docker-entrypoint-initdb
 
 3. **Update environment variables**
 ```bash
-CLIP_MODEL=sentence-transformers/clip-ViT-L-14
+CLIP_MODEL=openai/clip-vit-large-patch14-336
 EMBEDDING_DIM=768
 ```
 
@@ -244,9 +244,9 @@ docker compose exec db psql -U $DB_USER -d $DB_NAME -c "\d chunks"
 - Or run migration script to update database
 
 ### Issue: "CLIP model not found"
-**Solution**: Install sentence-transformers:
+**Solution**: Install transformers:
 ```bash
-pip install sentence-transformers
+pip install transformers
 ```
 
 ### Issue: "Gemini API key invalid"

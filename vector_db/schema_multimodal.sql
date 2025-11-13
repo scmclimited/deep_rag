@@ -19,7 +19,7 @@ CREATE INDEX idx_documents_content_hash ON documents(content_hash);
 
 COMMENT ON COLUMN documents.content_hash IS 'SHA256 hash of document content for duplicate detection';
 
--- CLIP-ViT-L/14 produces 768-dimensional embeddings (multi-modal, upgraded from ViT-B/32)
+-- openai/clip-vit-large-patch14-336 produces 768-dimensional embeddings (multi-modal, upgraded from ViT-B/32)
 -- Supports: text, images, and text+image combinations in same semantic space
 -- Higher dimensions = better semantic representation and retrieval quality
 -- Note: Can use ViT-B/32 (512 dims) for faster performance by setting EMBEDDING_DIM=512

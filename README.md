@@ -25,8 +25,9 @@ graph TD;
 	refine_retrieve --> compressor;
 	retriever --> compressor;
 	synthesizer --> citation_pruner;
-	critic -. refine .-> refine_retrieve;
-	critic -. synthesizes .-> synthesizer;
+	critic -. &nbsp;refine&nbsp; .-> refine_retrieve;
+	critic -. &nbsp;synthesize&nbsp; .-> synthesizer;
+
 	classDef default fill:#1f2937,color:#f9fafb,stroke:#4b5563,line-height:1.2;
 	classDef first fill:#111827,color:#f9fafb,stroke:#60a5fa;
 	classDef last fill:#2563eb,color:#f9fafb,stroke:#1d4ed8;

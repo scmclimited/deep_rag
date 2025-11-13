@@ -30,7 +30,9 @@ services:
           cpus: '4.0'
           memory: 4G
     volumes:
-      # Named volume for persistent data (remove to start fresh)
+      # Named volume for persistent data - data persists across container rebuilds
+      # To start fresh, use: docker compose down -v (removes volume)
+      # To keep data, use: docker compose down (keeps volume)
       - deep_rag_db_data:/var/lib/postgresql/data
       # Schema with all features integrated
       - ./vector_db/schema_multimodal.sql:/docker-entrypoint-initdb.d/01_schema_multimodal.sql

@@ -57,11 +57,124 @@ deep_rag/                          # Project root
 └── README.md                      # This file
 ```
 
+# Scenario Flow Diagrams
+<details>
+
+## 1. Explicit Document Selection (Selected/Attached Documents)
+
+**Environment Variables:**
+- `SYNTHESIZER_CONFIDENCE_THRESHOLD_EXPLICIT_SELECTION` (default: 30.0%)
+- `K_RETRIEVER` (default: 8)
+- `K_LEX` (default: 60)
+- `K_VEC` (default: 60)
+
+```bash
+Query with selected_doc_ids OR uploaded_doc_ids OR doc_id
+    ↓
+Retriever merges all doc IDs → doc_ids_to_filter
+    ├─ selected_doc_ids (UI selection)
+    ├─ uploaded_doc_ids (attached files)
+    └─ doc_id (ingestion/previous query)
+    ↓
+Retrieval (Selective Mode: cross_doc=False)
+    ├─ Hybrid search per document (K_RETRIEVER, K_LEX, K_VEC)
+    └─ Structure-based retrieval if similarity poor
+    ↓
+Synthesizer checks confidence
+    ├─ Threshold: SYNTHESIZER_CONFIDENCE_THRESHOLD_EXPLICIT_SELECTION (30.0%)
+    ├─ Below threshold → Pre-LLM abstention → "I don't know" → citation_pruner
+    └─ Above threshold → Call LLM
+        ├─ LLM returns answer → citation_pruner → Check for "I don't know"
+        │   ├─ Detected → Clear citations, return "I don't know"
+        │   └─ Not detected → Process citations normally
+        └─ LLM returns "I don't know" → citation_pruner → Clear citations
+```
+
+## 2. Cross-Document Search (No Specific Documents Selected)
+
+**Environment Variables:**
+- `SYNTHESIZER_CONFIDENCE_THRESHOLD_DEFAULT` (default: 40.0%)
+- `K_RETRIEVER` (default: 8)
+- `K_LEX` (default: 60)
+- `K_VEC` (default: 60)
+
+```bash
+Query with cross_doc=True, no selected/attached docs
+    ↓
+Retriever: doc_ids_to_filter = None
+    ↓
+Retrieval (Cross-Doc Mode: cross_doc=True)
+    ├─ Hybrid search across ALL documents (K_RETRIEVER, K_LEX, K_VEC)
+    └─ No document filtering
+    ↓
+Synthesizer checks confidence
+    ├─ Threshold: SYNTHESIZER_CONFIDENCE_THRESHOLD_DEFAULT (40.0%)
+    ├─ Below threshold → Pre-LLM abstention → "I don't know" → citation_pruner
+    └─ Above threshold → Call LLM
+        ├─ LLM returns answer → citation_pruner → Check for "I don't know"
+        │   ├─ Detected → Clear citations, return "I don't know"
+        │   └─ Not detected → Process citations normally
+        └─ LLM returns "I don't know" → citation_pruner → Clear citations
+```
+
+## 3. Hybrid Mode (Cross-Doc + Selected/Attached Documents)
+
+**Environment Variables:**
+- `SYNTHESIZER_CONFIDENCE_THRESHOLD_EXPLICIT_SELECTION` (default: 30.0%)
+- `K_RETRIEVER` (default: 8)
+- `K_LEX` (default: 60)
+- `K_VEC` (default: 60)
+
+```bash
+Query with cross_doc=True AND (selected_doc_ids OR uploaded_doc_ids OR doc_id)
+    ↓
+Retriever merges all doc IDs → doc_ids_to_filter
+    ├─ selected_doc_ids (UI selection)
+    ├─ uploaded_doc_ids (attached files)
+    └─ doc_id (ingestion/previous query)
+    ↓
+Retrieval (Hybrid Mode: cross_doc=True with doc_ids_to_filter)
+    ├─ Step 1: Retrieve from selected docs (K_RETRIEVER, K_LEX, K_VEC)
+    ├─ Step 2: If coverage < 12 chunks → Supplement with cross-doc search
+    └─ Merge results (selected docs prioritized, then cross-doc)
+    ↓
+Synthesizer checks confidence
+    ├─ Threshold: SYNTHESIZER_CONFIDENCE_THRESHOLD_EXPLICIT_SELECTION (30.0%)
+    ├─ Below threshold → Pre-LLM abstention → "I don't know" → citation_pruner
+    └─ Above threshold → Call LLM
+        ├─ LLM returns answer → citation_pruner → Check for "I don't know"
+        │   ├─ Detected → Clear citations, return "I don't know"
+        │   └─ Not detected → Process citations normally
+        └─ LLM returns "I don't know" → citation_pruner → Clear citations
+```
+</details>
+
+## Environment Variable Configuration
+
+Add to your `.env` file to customize behavior:
+
+```bash
+# Synthesizer Confidence Thresholds (percentage, 0-100)
+SYNTHESIZER_CONFIDENCE_THRESHOLD_DEFAULT=40.0          # Default for general queries
+SYNTHESIZER_CONFIDENCE_THRESHOLD_EXPLICIT_SELECTION=30.0  # Lower threshold when docs explicitly selected/attached
+
+# Retrieval Parameters
+K_RETRIEVER=8    # Number of final chunks to retrieve per document
+K_LEX=60         # Top-K for lexical (BM25) search
+K_VEC=60         # Top-K for vector (semantic) search
+```
+
+**Threshold Logic:**
+- **Explicit Selection (30%)**: Used when `selected_doc_ids`, `uploaded_doc_ids`, or `doc_id` is provided
+- **Default (40%)**: Used for cross-doc search without specific document selection
+- **Hybrid Mode**: Uses explicit selection threshold (30%) since documents are explicitly provided
+
 # 🧩 Prerequisites
 
 - **Python ≥ 3.11** (required for Google Gemini support due to 3.10 support deprecation in 2026)  
 - **Docker & Docker Compose**
-- **NodeJS (npm)**  
+- **NodeJS (npm)** 
+- **(Optional) Make (for convenience scripts) 
 - **(Optional) Tesseract OCR + Poppler** (for scanned PDFs)
 
 ## Install System Dependencies
@@ -112,7 +225,36 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment
+### 4. Pre-download Models (Optional but Recommended)
+
+Pre-downloading models speeds up Docker builds and enables offline operation. Models will be baked into the Docker image during build.
+
+**Prerequisites:**
+- Python environment must be activated (from step 2)
+- Minimal dependencies installed (for model download only)
+
+```bash
+# From project root (deep_rag/)
+cd deep_rag_backend
+
+# Install minimal dependencies for model download (if not already installed)
+pip install -r requirements-download.txt
+
+# Download both CLIP and reranker models
+python scripts/download_model.py
+
+# Or download individually:
+python scripts/download_model.py --clip-only       # Download only CLIP model
+python scripts/download_model.py --reranker-only  # Download only reranker model
+```
+
+The models will be downloaded to `deep_rag_backend/models/` and will be automatically included in Docker builds.
+
+**Note:** If you skip this step, models will be downloaded automatically during Docker build or at runtime, which may take longer.
+
+For detailed instructions, troubleshooting, and alternative methods, see [`md_guides/MODEL_DOWNLOAD.md`](md_guides/MODEL_DOWNLOAD.md).
+
+### 5. Configure Environment
 
 <details>
 <summary><strong>Environment Setup Details</strong> - Click to expand</summary>
@@ -156,10 +298,13 @@ The `.env.example` file contains all required environment variables with sample 
 **Optional Variables:**
 - **Startup Tests**: `RUN_TESTS_ON_STARTUP` (set to `true` to run database schema tests on container startup)
 - **Endpoint Tests on Boot**: `AUTOMATE_ENDPOINT_RUNS_ON_BOOT` (set to `true` to run endpoint tests after `make up-and-test`)
+- **Synthesizer Confidence Thresholds**: 
+  - `SYNTHESIZER_CONFIDENCE_THRESHOLD_DEFAULT` (default: 40.0%) - Threshold for general queries
+  - `SYNTHESIZER_CONFIDENCE_THRESHOLD_EXPLICIT_SELECTION` (default: THRESH * 100 = 30.0%) - Lower threshold when documents are explicitly selected/attached
 
 </details>
 
-### 5. Start Services
+### 6. Start Services
 ```bash
 # All commands run from project root (deep_rag/)
 
@@ -1431,7 +1576,7 @@ The system logs show which pages are represented in retrieved chunks:
 
 **Production logs (from project root):**
 ```bash
-cat deep_rag_backend/inference/graph/logs/agent_log_*.txt
+cat deep_rag_backend/inference/graph/logs/dev/agent_log_*.txt
 ```
 
 **Live tail via Docker (from project root):**

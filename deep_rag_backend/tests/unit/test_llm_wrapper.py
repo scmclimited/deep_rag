@@ -13,20 +13,21 @@ class TestCallLLM:
     @patch('inference.llm.wrapper.gemini_chat')
     def test_call_llm_gemini(self, mock_gemini):
         """Test call_llm with Gemini provider."""
-        mock_gemini.return_value = "Test response"
-        result = call_llm(
+        mock_gemini.return_value = ("Test response", {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15})
+        result, token_info = call_llm(
             system="Test system",
             messages=[{"role": "user", "content": "Test"}],
             max_tokens=100
         )
         assert result == "Test response"
+        assert token_info["total_tokens"] == 15
         mock_gemini.assert_called_once()
     
     @patch('inference.llm.wrapper.gemini_chat')
     def test_call_llm_retry_on_error(self, mock_gemini):
         """Test call_llm retries on transient errors."""
-        mock_gemini.side_effect = [Exception("Transient error"), "Success"]
-        result = call_llm(
+        mock_gemini.side_effect = [Exception("Transient error"), ("Success", {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15})]
+        result, token_info = call_llm(
             system="Test system",
             messages=[{"role": "user", "content": "Test"}],
             max_tokens=100,

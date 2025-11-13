@@ -183,8 +183,22 @@ def ask_graph(body: AskGraphBody) -> Dict[str, Any]:
         # Get citations from citation_pruner if available
         citations = result.get("citations", [])
         
+        answer_text = result.get("answer", "")
+        
+        # Verify "Documents used for analysis" section is in the answer being sent to frontend
+        has_docs_analysis = "Documents used for analysis" in answer_text
+        has_contribution_in_answer = "(contribution strength:" in answer_text.lower() or "contribution strength:" in answer_text.lower()
+        has_confidence_in_answer = "(confidence:" in answer_text.lower() or "confidence:" in answer_text.lower()
+        has_scores_in_answer = has_contribution_in_answer or has_confidence_in_answer
+        if has_docs_analysis:
+            docs_start = answer_text.find("Documents used for analysis")
+            docs_section = answer_text[docs_start:docs_start+300]
+            logger.info(f"API Response: 'Documents used for analysis' section present in answer (has_scores: {has_scores_in_answer}): {docs_section}...")
+        else:
+            logger.warning("API Response: 'Documents used for analysis' section NOT found in answer being sent to frontend!")
+        
         response = {
-            "answer": result.get("answer", ""),
+            "answer": answer_text,
             "confidence": result.get("confidence", 0.0),
             "action": result.get("action", "answer"),
             "mode": "query_only",

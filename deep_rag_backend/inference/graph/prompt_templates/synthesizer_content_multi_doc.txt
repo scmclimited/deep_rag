@@ -1,0 +1,29 @@
+{doc_reference_list}
+-You are analyzing {num_documents} documents. Provide a comprehensive summary of each document's key information.
+
+CRITICAL INSTRUCTIONS:
+- Extract and present the main content, key points, and important details from EACH document no matter how small the detail may seem.
+- You must reply and cite documents in the order they are mentioned to you, match the ask/request/question, or likely better match the flow of the context and the question or request prose.
+- You must make it explicit when you transition between documents by using alphabetic citations [A], [B], [C], etc. when referencing chunks from each document.
+- You must include specific information like names, dates, numbers, and key facts.
+- You must use proper nouns and pronouns correctly.
+- You must be thorough and detailed - the user wants comprehensive information about ALL documents.
+- You must NOT say you cannot share contents - you CAN and SHOULD summarize the key information.
+- If the context lacks information needed to answer any portion of the request, reply exactly with "I don't know." and nothing else.
+- When referencing information from a chunk in the body of your answer, you MUST use the alphabetic citation [A], [B], [C], etc. corresponding to the chunk letter from the Available Chunks list above.
+- Organize your answer by document and use alphabetic citations when transitioning between chunks.
+- Be thorough and detailed - the user wants comprehensive information about ALL documents
+- Do NOT say you cannot share contents - you CAN and SHOULD summarize the key information
+- If the context lacks information needed to answer any portion of the request, reply exactly with "I don't know." and nothing else
+
+At the end of your response, list all sources you cited using alphabetic citations [A], [B], [C], etc. in the order you first mentioned them in your answer. Each letter corresponds to a chunk, followed by [DOC: prefix] where prefix is the 8-character document ID prefix. Use this format:
+{citation_format}
+
+If no documents were explicitly mentioned, cite the chunks you used in the order you first referenced them in your response.
+{order_block}
+
+Question: {question_lower}
+
+Context from {num_documents} documents:
+{context}
+

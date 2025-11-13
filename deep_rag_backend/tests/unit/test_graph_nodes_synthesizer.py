@@ -21,7 +21,7 @@ class TestNodeSynthesizer:
             "action": "answer",
             "features": {}
         }
-        mock_call_llm.return_value = "This is the answer."
+        mock_call_llm.return_value = ("This is the answer.", {"input_tokens": 20, "output_tokens": 4, "total_tokens": 24})
         
         state: GraphState = {
             "question": "What is the answer?",
@@ -174,7 +174,7 @@ class TestNodeSynthesizer:
             "action": "answer",
             "features": {}
         }
-        mock_call_llm.return_value = "This is a confident answer."
+        mock_call_llm.return_value = ("This is a confident answer.", {"input_tokens": 20, "output_tokens": 5, "total_tokens": 25})
         
         state: GraphState = {
             "question": "Test question",
@@ -200,10 +200,18 @@ class TestNodeSynthesizer:
         assert result["action"] == "answer"
         mock_call_llm.assert_called_once()  # Should call LLM
     
+    @patch('inference.graph.nodes.synthesizer.get_confidence_for_chunks')
     @patch('inference.graph.nodes.synthesizer.call_llm')
-    def test_node_synthesizer_with_doc_id(self, mock_call_llm):
+    def test_node_synthesizer_with_doc_id(self, mock_call_llm, mock_confidence):
         """Test synthesis with doc_id context."""
-        mock_call_llm.return_value = "Answer with doc context."
+        # Mock confidence to return high enough value to proceed
+        mock_confidence.return_value = {
+            "confidence": 85.0,
+            "probability": 0.85,
+            "action": "answer",
+            "features": {}
+        }
+        mock_call_llm.return_value = ("Answer with doc context.", {"input_tokens": 25, "output_tokens": 4, "total_tokens": 29})
         
         state: GraphState = {
             "question": "Test question",
@@ -224,9 +232,12 @@ class TestNodeSynthesizer:
         
         result = node_synthesizer(state)
         
-        # Verify doc_id context is included in prompt
+        # Verify doc_id is included in result and prompt contains document reference
         call_args = mock_call_llm.call_args
-        assert "Focus your answer on the identified document" in call_args[0][1][0]["content"]
+        prompt_content = call_args[0][1][0]["content"]
+        # The prompt should contain document reference information
+        assert "Available Documents" in prompt_content or "doc1" in prompt_content
+        assert result.get("doc_id") == "doc1" or "doc1" in result.get("doc_ids", [])
     
     @patch('inference.graph.nodes.synthesizer.get_confidence_for_chunks')
     @patch('inference.graph.nodes.synthesizer.call_llm')
@@ -239,7 +250,7 @@ class TestNodeSynthesizer:
             "action": "answer",
             "features": {}
         }
-        mock_call_llm.return_value = "Answer with citation [1]."
+        mock_call_llm.return_value = ("Answer with citation [1].", {"input_tokens": 20, "output_tokens": 5, "total_tokens": 25})
         
         state: GraphState = {
             "question": "Test question",
@@ -272,7 +283,7 @@ class TestNodeSynthesizer:
     @patch('inference.graph.nodes.synthesizer.call_llm')
     def test_node_synthesizer_uses_top_5_chunks(self, mock_call_llm):
         """Test that synthesizer only uses top 5 chunks."""
-        mock_call_llm.return_value = "Answer."
+        mock_call_llm.return_value = ("Answer.", {"input_tokens": 15, "output_tokens": 1, "total_tokens": 16})
         
         state: GraphState = {
             "question": "Test question",

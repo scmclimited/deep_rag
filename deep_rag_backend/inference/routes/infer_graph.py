@@ -178,16 +178,15 @@ async def infer_graph(
 
         doc_id_for_graph = doc_ids_to_use[0] if doc_ids_to_use else None
         
-        # CRITICAL: Enable cross-doc mode for multi-document attachments
-        # This makes multi-doc attachments follow the same successful path as cross-doc search
-        # Thread B (cross-doc) succeeded with 91.8% confidence in 2 iterations
-        # Thread A (3 attachments) failed with "I don't know" after 5 iterations
-        # Solution: Treat multi-doc attachments like cross-doc search
-        if doc_ids_to_use and len(doc_ids_to_use) > 1 and not cross_doc:
-            cross_doc = True
-            logger.info(f"🔄 Auto-enabling cross-doc mode for {len(doc_ids_to_use)} attached documents (following successful cross-doc strategy)")
+        # When attachments are uploaded:
+        # - If cross_doc=False: Scope to ONLY attached documents (like selected documents)
+        # - If cross_doc=True: Prioritize attached documents but allow cross-doc retrieval from other pre-ingested documents
+        if uploaded_doc_ids and len(uploaded_doc_ids) > 0:
+            if cross_doc:
+                logger.info(f"🔄 Cross-doc enabled with {len(uploaded_doc_ids)} attached document(s) - will prioritize attached docs but allow cross-doc retrieval")
+            else:
+                logger.info(f"🔒 Cross-doc disabled with {len(uploaded_doc_ids)} attached document(s) - will scope retrieval to ONLY attached documents")
         
-        # Run the query with LangGraph
         if cross_doc:
             logger.info("Cross-document retrieval enabled")
         result = ask_with_graph(
@@ -195,6 +194,7 @@ async def infer_graph(
             thread_id=thread_id_value,
             doc_id=doc_id_for_graph,  # Keep for backward compatibility
             selected_doc_ids=doc_ids_to_use,  # Use selected_doc_ids if provided
+            uploaded_doc_ids=uploaded_doc_ids,  # Pass uploaded_doc_ids separately
             cross_doc=cross_doc
         )
         

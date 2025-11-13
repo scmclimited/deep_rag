@@ -20,7 +20,7 @@ def call_llm(
     temperature: Optional[float] = None,
     retries: int = 8,
     retry_backoff_sec: float = 2.0,
-) -> str:
+) -> tuple[str, Dict[str, int]]:
     """
     Unified interface for chat completion across providers.
 
@@ -41,7 +41,8 @@ def call_llm(
     for attempt in range(1, retries + 1):
         try:
             if LLM_PROVIDER == "gemini":
-                return gemini_chat(system, messages, max_tokens, temperature)
+                text, token_info = gemini_chat(system, messages, max_tokens, temperature)
+                return text, token_info
             # Future providers (commented out - uncomment when needed)
             # elif LLM_PROVIDER == "openai":
             #     return openai_chat(system, messages, max_tokens, temperature)

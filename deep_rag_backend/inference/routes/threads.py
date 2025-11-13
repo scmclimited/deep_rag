@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 from retrieval.thread_tracking.get import get_thread_interactions
 from retrieval.thread_tracking.log import log_thread_interaction
+from retrieval.thread_tracking.update import archive_thread
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,8 @@ class ThreadSeedRequest(BaseModel):
 @router.get("/threads")
 async def get_threads(
     user_id: Optional[str] = Query(None, description="Filter threads by user ID"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of threads to return")
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of threads to return"),
+    include_archived: bool = Query(False, description="Include archived threads in results")
 ) -> Dict:
     """
     Get list of unique threads for a user.
@@ -31,7 +33,7 @@ async def get_threads(
     If no threads exist, returns an empty list (not an error).
     """
     try:
-        logger.info(f"get_threads: Received request for user_id='{user_id}' (type: {type(user_id)})")
+        logger.info(f"get_threads: Received request for user_id='{user_id}' (type: {type(user_id)}), include_archived={include_archived}")
         if not user_id:
             logger.info("get_threads: No user_id provided, returning empty list")
             return {
@@ -42,7 +44,7 @@ async def get_threads(
         # Get all thread interactions for the user
         # Run synchronous DB operation in thread pool to avoid blocking
         logger.info(f"get_threads: Querying database for user_id='{user_id}'")
-        interactions = await asyncio.to_thread(get_thread_interactions, user_id=user_id, limit=limit * 10)
+        interactions = await asyncio.to_thread(get_thread_interactions, user_id=user_id, limit=limit * 10, include_archived=include_archived)
         logger.info(f"get_threads: Found {len(interactions)} interactions for user_id='{user_id}'")
         
         # Group by thread_id to get unique threads
@@ -159,6 +161,37 @@ async def seed_thread(body: ThreadSeedRequest) -> Dict:
     except Exception as exc:
         logger.error("seed_thread: Failed to seed thread: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.patch("/threads/{thread_id}/archive")
+async def archive_thread_endpoint(
+    thread_id: str,
+    user_id: Optional[str] = Query(..., description="User ID (required for security)"),
+    archived: bool = Query(True, description="True to archive, False to unarchive")
+) -> Dict:
+    """
+    Archive or unarchive a thread.
+    """
+    try:
+        if not user_id:
+            raise HTTPException(status_code=400, detail="user_id is required")
+        
+        success = await asyncio.to_thread(archive_thread, thread_id=thread_id, user_id=user_id, archived=archived)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found or access denied")
+        
+        return {
+            "status": "success",
+            "thread_id": thread_id,
+            "user_id": user_id,
+            "archived": archived
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error archiving thread: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/threads/debug/user-ids")

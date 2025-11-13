@@ -41,7 +41,3 @@ services:
     # Optional: Connect to external network if database is in another compose file
     # networks:
     #   - deep_rag_network
-    # Optional: Use external network for database connection
-    # networks:
-    #   deep_rag_network:
-    #     external: true

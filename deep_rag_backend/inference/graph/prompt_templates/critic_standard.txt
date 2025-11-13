@@ -1,0 +1,9 @@
+Given the plan:
+{plan}
+And notes:
+{notes}
+Propose refined sub-queries (max 2) to retrieve missing evidence. Short, 1 line each.
+
+IMPORTANT: Write queries as natural language questions without special characters like &, *, |, !, :, or quotes. 
+Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & DX".
+

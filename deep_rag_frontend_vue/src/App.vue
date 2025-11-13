@@ -20,9 +20,9 @@
       class="fixed inset-0 bg-black/50 z-30 md:hidden"
     ></div>
     
-    <!-- Main Chat Area - Dynamic width based on available space (80% of remaining width) -->
+    <!-- Main Chat Area - Centered with dynamic width based on window size -->
     <div 
-      class="flex-1 flex flex-col max-w-4xl mx-auto w-full px-4 md:px-6 lg:px-8 main-content"
+      class="flex-1 flex flex-col w-full px-4 md:px-6 lg:px-8 main-content"
       :class="{ 'pointer-events-none': showMobileToggle && sidebarExpanded }"
     >
       <ChatHeader />

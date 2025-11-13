@@ -4,6 +4,7 @@ Compressor node: Summarizes retrieved evidence into concise notes.
 import logging
 from inference.graph.state import GraphState
 from inference.graph.agent_logger import get_agent_logger
+from inference.graph.prompt_templates import format_template
 from inference.llm import call_llm
 
 logger = logging.getLogger(__name__)
@@ -35,10 +36,11 @@ def node_compressor(state: GraphState) -> GraphState:
             logger.info(f"  - {doc_id[:8]}...: {count} chunk(s)")
     
     snippets = "\n\n".join([f"[p{h['p0']}–{h['p1']}] {h['text'][:1200]}" for h in evidence])
-    prompt = f"""Summarize the following snippets into crisp notes with bullets.
-Retain numbers and proper nouns verbatim. Avoid speculation.
-Snippets:\n{snippets}"""
-    notes = call_llm("You compress evidence.", [{"role": "user", "content": prompt}], max_tokens=400, temperature=0.1)
+    prompt = format_template(
+        "compressor",
+        snippets=snippets
+    )
+    notes, _ = call_llm("You compress evidence.", [{"role": "user", "content": prompt}], max_tokens=400, temperature=0.1)
     notes_text = notes.strip()
     
     logger.info(f"Compressed Notes (length: {len(notes_text)} chars):")

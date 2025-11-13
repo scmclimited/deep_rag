@@ -20,7 +20,7 @@ def compressor(state: State) -> State:
     prompt = f"""Summarize the following context into crisp notes with bullets.
 Retain numbers and proper nouns verbatim. Avoid speculation.
 Context:\n{snippets}"""
-    notes = call_llm("You compress evidence from grounded context.", [{"role":"user","content":prompt}], max_tokens=300)
+    notes, _ = call_llm("You compress evidence from grounded context.", [{"role":"user","content":prompt}], max_tokens=300)
     state["notes"] = notes.strip()
     
     logger.info(f"Compressed Notes:\n{state['notes']}")

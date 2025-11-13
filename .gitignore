@@ -44,8 +44,14 @@ Thumbs.db
 logs/
 *.log.*
 
-# Test logs (separate from production logs)
-**/inference/graph/logs/test/
+# Test logs (separate from dev/production logs)
+**/inference/graph/logs/test/test
+*.test.log
+*.test.csv
+*.test.txt
+
+# Dev/Prod logs (separate from test logs)
+**/inference/graph/logs/test/dev
 *.test.log
 *.test.csv
 *.test.txt
@@ -90,4 +96,5 @@ vector_db/*.sql.bak
 *.tmp
 *.bak
 api_logs.txt
+deep_rag_backend/models/
 

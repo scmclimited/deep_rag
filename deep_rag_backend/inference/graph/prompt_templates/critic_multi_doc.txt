@@ -1,0 +1,15 @@
+Given the plan:
+{plan}
+And notes:
+{notes}
+
+This is a multi-document query. The user wants comprehensive information from multiple documents.
+Propose refined sub-queries (max 2) to retrieve MORE complete evidence from the documents.
+Focus on:
+1. Retrieving more chunks from each document
+2. Getting document metadata (titles, types, structure)
+3. Extracting key content sections
+
+Write queries as natural language questions without special characters like &, *, |, !, :, or quotes. 
+Use plain text only. For example, write "Hygiene and DX" instead of "Hygiene & DX".
+

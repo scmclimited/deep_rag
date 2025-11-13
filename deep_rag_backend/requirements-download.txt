@@ -1,0 +1,8 @@
+# Minimal requirements for downloading models only
+# Use this if you just want to download models without installing all dependencies
+
+# Core dependencies for model download
+transformers==4.42.0
+sentence-transformers==3.0.1
+torch>=2.0.0
+

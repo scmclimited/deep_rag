@@ -379,7 +379,12 @@ async function sendMessage() {
   // Validate that user has documents available for querying
   // Skip validation if user has attachments (they're providing documents now)
   if (!hasAttachments) {
-    const hasSelectedDocs = store.selectedDocIds && store.selectedDocIds.length > 0
+    const activeDocIdsForThread = Array.isArray(store.activeDocIdsForThread?.value)
+      ? store.activeDocIdsForThread.value
+      : []
+    const hasSelectedDocs =
+      (store.selectedDocIds && store.selectedDocIds.length > 0) ||
+      activeDocIdsForThread.length > 0
     const crossDocEnabled = store.crossDocSearch
     const hasAnyDocs = store.documents && store.documents.length > 0
     
@@ -515,8 +520,11 @@ async function sendMessage() {
     if (store.userId) {
       // Refresh threads immediately - DB write completes before response is sent
       await store.loadThreads()
-      // Also trigger Sidebar refresh if it's watching
-      console.log('ChatInput: Threads refreshed after query')
+      // DON'T refresh thread history immediately after adding messages
+      // The local messages are already in correct order with proper timestamps
+      // Only refresh thread history when switching threads or loading old threads
+      // This prevents messages from being reordered when backend timestamps differ slightly
+      console.log('ChatInput: Threads refreshed after query (skipping thread history refresh to preserve order)')
     }
   } catch (error) {
     console.error('Error sending message:', error)

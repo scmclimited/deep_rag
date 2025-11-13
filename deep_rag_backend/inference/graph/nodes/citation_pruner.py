@@ -281,12 +281,33 @@ def node_citation_pruner(state: GraphState) -> GraphState:
     citations = state.get("citations", [])
     confidence = state.get("confidence", 0.0)
     action = state.get("action", "answer")
+    question = state.get("question", "")
     
     logger.info(f"Input state: answer_length={len(answer)}, doc_ids={len(doc_ids)}, citations={len(citations)}")
+    logger.info(f"Question: {question}")
+    logger.info(f"Confidence: {confidence:.2f}%, Action: {action}")
+    logger.info(f"Answer preview (first 500 chars): {answer[:500]}")
     
     # Step 1: Check for "I don't know" response
-    if _check_idont_know(answer):
-        logger.info("Detected 'I don't know' response - clearing all sources and citations")
+    is_idont_know = _check_idont_know(answer)
+    if is_idont_know:
+        logger.warning("=" * 60)
+        logger.warning("DETECTED 'I DON'T KNOW' RESPONSE IN CITATION_PRUNER")
+        logger.warning("=" * 60)
+        logger.warning(f"Question: {question}")
+        logger.warning(f"Answer (full): {answer}")
+        logger.warning(f"Answer length: {len(answer)} characters")
+        logger.warning(f"Confidence from synthesizer: {confidence:.2f}%")
+        logger.warning(f"Action from synthesizer: {action}")
+        logger.warning(f"Document IDs provided: {doc_ids}")
+        logger.warning(f"Number of citations: {len(citations)}")
+        logger.warning("This may indicate:")
+        logger.warning("  1. LLM generated 'I don't know' despite having context")
+        logger.warning("  2. Confidence threshold was too low (< 40%)")
+        logger.warning("  3. Context was insufficient or irrelevant")
+        logger.warning("  4. Prompt may have been too restrictive")
+        logger.warning("=" * 60)
+        logger.info("Clearing all sources and citations due to 'I don't know' detection")
         pruned_result: Dict[str, Any] = {
             "answer": "I don't know.",
             "confidence": min(confidence, 40.0),
@@ -313,11 +334,39 @@ def node_citation_pruner(state: GraphState) -> GraphState:
         
         return cast(GraphState, pruned_result)
     
-    # Step 2: Extract document references from answer
+    # Step 2: Extract document references from answer body
     doc_refs = _extract_doc_references(answer)
-    logger.info(f"Extracted {len(doc_refs)} document reference(s) from answer: {[ref for ref in doc_refs]}")
+    logger.info(f"Extracted {len(doc_refs)} document reference(s) from answer body: {[ref for ref in doc_refs]}")
+    
+    # Step 2a: Also extract from alphabetic citations in answer body using letter_to_doc_prefix
+    letter_to_doc_prefix = state.get("letter_to_doc_prefix", {})
+    if letter_to_doc_prefix:
+        logger.info(f"Found letter_to_doc_prefix mapping: {letter_to_doc_prefix}")
+        # Extract alphabetic citations like [B], [G], [M] from answer body
+        alphabetic_citations = re.findall(r'\[([A-Z])\]', answer)
+        if alphabetic_citations:
+            logger.info(f"Found alphabetic citations in answer body: {set(alphabetic_citations)}")
+            # Map letters to doc prefixes
+            for letter in set(alphabetic_citations):
+                if letter in letter_to_doc_prefix:
+                    doc_prefix = letter_to_doc_prefix[letter].lower()
+                    doc_refs.add(doc_prefix)
+                    logger.debug(f"Mapped citation [{letter}] to doc prefix: {doc_prefix}")
+    
+    # Step 2b: Also extract document references from Sources section if present
+    if "Sources:" in answer:
+        # Match Sources section with flexible newline handling (1 or 2 newlines)
+        sources_match = re.search(r'\n+Sources:.*$', answer, re.DOTALL)
+        if sources_match:
+            sources_text = sources_match.group(0)
+            # Extract [DOC: 16a68247] patterns from Sources section
+            sources_doc_refs = re.findall(r'\[DOC:\s*([a-f0-9]{8})\]\s*', sources_text, re.IGNORECASE)
+            if sources_doc_refs:
+                doc_refs.update([ref.lower() for ref in sources_doc_refs])
+                logger.info(f"Extracted {len(sources_doc_refs)} document reference(s) from Sources section: {sources_doc_refs}")
+    
     if doc_refs:
-        logger.info(f"Document reference prefixes found: {list(doc_refs)}")
+        logger.info(f"Total document reference prefixes found: {list(doc_refs)}")
     else:
         logger.warning(f"No document references found in answer. Answer preview: {answer[:500]}")
         logger.debug(f"Available doc_ids to match against: {[d[:8] for d in doc_ids]}")
@@ -355,17 +404,229 @@ def node_citation_pruner(state: GraphState) -> GraphState:
     # (Pages are already filtered in synthesizer, but we ensure consistency)
     pages = state.get("pages", [])
     
-    # Step 8: Update the answer's Sources section if it exists
-    # Remove old Sources section and add new one with pruned citations
+    # Step 8: Extract and preserve the LLM's Sources section AND "Documents used for analysis" section
+    # The LLM generates Sources in format: "- [B] [DOC: 16a68247]" with alphabetic citations
+    # We need to extract this section, filter to only used documents, and preserve the format
+    # Also preserve the "Documents used for analysis (sorted bycontribution strength):" section with confidence scores
+    sources_section = ""
+    documents_analysis_section = ""
+    
+    if "Sources:" in answer:
+        # Extract the Sources section from the original answer (before citation replacement)
+        # Stop at "Documents used for analysis" if it exists, otherwise match to end
+        # Try multiple patterns to handle different formats
+        sources_text = None
+        
+        # Pattern 1: Sources: with preceding newlines, stop at "Documents used for analysis"
+        sources_match = re.search(r'\n+Sources:.*?(?=\n+Documents used for analysis|$)', answer, re.DOTALL)
+        if sources_match:
+            sources_text = sources_match.group(0)
+            logger.info(f"Found Sources section (pattern 1): {sources_text[:200]}...")
+        else:
+            # Pattern 2: Sources: at start of line (with MULTILINE flag)
+            sources_match_alt = re.search(r'^Sources:.*?(?=\n+Documents used for analysis|$)', answer, re.MULTILINE | re.DOTALL)
+            if sources_match_alt:
+                sources_text = sources_match_alt.group(0)
+                logger.info(f"Found Sources section (pattern 2): {sources_text[:200]}...")
+            else:
+                # Pattern 3: Just find "Sources:" and everything after until "Documents used for analysis" or end
+                sources_idx = answer.find("Sources:")
+                if sources_idx >= 0:
+                    docs_idx = answer.find("Documents used for analysis", sources_idx)
+                    if docs_idx >= 0:
+                        sources_text = answer[sources_idx:docs_idx].rstrip()
+                    else:
+                        sources_text = answer[sources_idx:].rstrip()
+                    logger.info(f"Found Sources section (pattern 3 - substring): {sources_text[:200]}...")
+                else:
+                    logger.warning(f"Sources: found in answer but all extraction patterns failed. Answer snippet: {answer[max(0, answer.find('Sources:')-50):answer.find('Sources:')+200]}")
+        
+        if sources_text:
+            # letter_to_doc_prefix was already retrieved above
+            logger.debug(f"letter_to_doc_prefix mapping: {letter_to_doc_prefix}")
+            
+            # Parse alphabetic citations from Sources section: "- [B] [DOC: 16a68247]"
+            sources_lines = []
+            for line in sources_text.split('\n'):
+                line = line.strip()
+                if not line or line == "Sources:":
+                    if line == "Sources:":
+                        sources_lines.append("Sources:")
+                    continue
+                
+                # Match pattern: "- [B] [DOC: 16a68247]" or "- [B] [DOC:16a68247]"
+                citation_match = re.match(r'^-\s*\[([A-Z])\]\s*\[DOC:\s*([a-f0-9]{8})\]\s*$', line, re.IGNORECASE)
+                if citation_match:
+                    letter = citation_match.group(1).upper()
+                    doc_prefix = citation_match.group(2).lower()
+                    
+                    # Check if this document was actually used
+                    # First, verify the letter maps to the correct doc_prefix
+                    expected_prefix = letter_to_doc_prefix.get(letter, "").lower()
+                    if expected_prefix == doc_prefix:
+                        # Find the full doc_id that matches this prefix
+                        matching_doc_id = None
+                        for doc_id in doc_ids:
+                            if doc_id[:8].lower() == doc_prefix:
+                                matching_doc_id = doc_id
+                                break
+                        
+                        # Include if:
+                        # 1. The doc_id is in used_doc_ids (explicitly referenced in answer), OR
+                        # 2. The doc_id exists in doc_ids (available in context) and letter_to_doc_prefix is valid
+                        # This ensures Sources section is preserved even if used_doc_ids is empty due to alphabetic citations
+                        if matching_doc_id:
+                            if matching_doc_id in used_doc_ids:
+                                # Explicitly referenced - include it
+                                sources_lines.append(line)
+                                logger.debug(f"Including citation: {line} (doc_id: {matching_doc_id[:8]}... in used_doc_ids)")
+                            elif letter_to_doc_prefix and letter in letter_to_doc_prefix:
+                                # Valid letter mapping - include it (alphabetic citation was used in answer)
+                                sources_lines.append(line)
+                                logger.debug(f"Including citation: {line} (doc_id: {matching_doc_id[:8]}... via letter mapping)")
+                            else:
+                                logger.debug(f"Excluding citation: {line} (document not in used_doc_ids and no valid letter mapping)")
+                        else:
+                            logger.debug(f"Excluding citation: {line} (doc_id not found for prefix {doc_prefix})")
+                    else:
+                        # If letter_to_doc_prefix is empty, still include if doc_prefix is in used_doc_ids
+                        # This handles the case where LLM generated Sources but letter mapping is missing
+                        if not letter_to_doc_prefix or expected_prefix == "":
+                            matching_doc_id = None
+                            for doc_id in doc_ids:
+                                if doc_id[:8].lower() == doc_prefix:
+                                    matching_doc_id = doc_id
+                                    break
+                            if matching_doc_id and matching_doc_id in used_doc_ids:
+                                sources_lines.append(line)
+                                logger.debug(f"Including citation: {line} (doc_id: {matching_doc_id[:8]}... in used_doc_ids, no letter mapping)")
+                            else:
+                                logger.debug(f"Excluding citation: {line} (letter {letter} doesn't match expected prefix {expected_prefix} and doc not in used_doc_ids)")
+                        else:
+                            logger.debug(f"Excluding citation: {line} (letter {letter} doesn't match expected prefix {expected_prefix})")
+                else:
+                    # Keep non-citation lines (like "Sources:" header)
+                    if line:
+                        sources_lines.append(line)
+            
+            # Rebuild Sources section if we have any citations
+            if len(sources_lines) > 1:  # More than just "Sources:"
+                sources_section = "\n" + "\n".join(sources_lines)
+                logger.info(f"Rebuilt Sources section with {len(sources_lines) - 1} citation(s): {sources_section[:200]}...")
+            else:
+                logger.warning(f"Sources section found but no valid citations after filtering. sources_lines={sources_lines}, letter_to_doc_prefix={letter_to_doc_prefix}, used_doc_ids={[d[:8] for d in used_doc_ids]}")
+                # If we found Sources but filtered everything out, preserve the original
+                # We'll replace [DOC: prefix] with titles later regardless
+                if sources_text:
+                    logger.info("Preserving Sources section as-is (will replace [DOC: prefix] with titles)")
+                    original_sources_lines = []
+                    for line in sources_text.split('\n'):
+                        line = line.strip()
+                        if line and (line == "Sources:" or re.match(r'^-\s*\[([A-Z])\]\s*\[DOC:', line, re.IGNORECASE)):
+                            original_sources_lines.append(line)
+                    if len(original_sources_lines) > 1:
+                        sources_section = "\n" + "\n".join(original_sources_lines)
+                        logger.info(f"Preserved original Sources section: {sources_section[:200]}...")
+    
+    # Extract "Documents used for analysis" section separately
+    # This section contains confidence scores per page, so we must preserve it exactly as-is
+    if "Documents used for analysis" in answer:
+        # Extract the entire "Documents used for analysis" section (preserve confidence scores)
+        # Use a more precise pattern to ensure we get everything including confidence scores
+        docs_analysis_match = re.search(r'\n+Documents used for analysis.*$', answer, re.DOTALL)
+        if docs_analysis_match:
+            documents_analysis_section = docs_analysis_match.group(0)
+            # Verify contribution strength scores are present (check for both old "confidence" and new "contribution strength")
+            has_contribution = '(contribution strength:' in documents_analysis_section.lower() or 'contribution strength:' in documents_analysis_section.lower()
+            has_confidence = '(confidence:' in documents_analysis_section.lower() or 'confidence:' in documents_analysis_section.lower()
+            has_scores = has_contribution or has_confidence
+            logger.info(f"Found 'Documents used for analysis' section (length: {len(documents_analysis_section)}, has_scores: {has_scores}): {documents_analysis_section[:300]}...")
+            if not has_scores:
+                logger.warning("'Documents used for analysis' section extracted but no contribution strength scores detected!")
+    
+    # Remove old Sources section and "Documents used for analysis" section from updated_answer if they exist
     if "Sources:" in updated_answer:
-        # Remove existing Sources section
-        sources_pattern = r'\n\nSources:.*$'
+        # Match Sources section with flexible newline handling (1 or 2 newlines)
+        # Stop at "Documents used for analysis" if present
+        sources_pattern = r'\n+Sources:.*?(?=\n+Documents used for analysis|$)'
         updated_answer = re.sub(sources_pattern, '', updated_answer, flags=re.DOTALL)
     
-    # Add updated Sources section if we have citations
-    if pruned_citations:
+    if "Documents used for analysis" in updated_answer:
+        # Remove "Documents used for analysis" section (we'll add it back after Sources)
+        docs_analysis_pattern = r'\n+Documents used for analysis.*$'
+        updated_answer = re.sub(docs_analysis_pattern, '', updated_answer, flags=re.DOTALL)
+    
+    # Add preserved Sources section if we have one
+    # Replace [DOC: prefix] with document titles in Sources section
+    if sources_section:
+        # Replace [DOC: prefix] patterns with document titles
+        # Build prefix to title map from all_doc_id_to_title
+        prefix_to_title: Dict[str, str] = {}
+        for doc_id, title in all_doc_id_to_title.items():
+            if title:
+                prefix = doc_id[:8].lower()
+                prefix_to_title[prefix] = title
+        
+        # Replace [DOC: prefix] with titles in Sources section
+        # Format: "- [B] [DOC: 16a68247]" -> "- [B] Document Title\n"
+        # Process line by line to ensure each citation is on its own line
+        sources_lines_final = []
+        for line in sources_section.split('\n'):
+            line = line.rstrip()  # Remove trailing whitespace but preserve leading
+            if not line or line == "Sources:":
+                if line == "Sources:":
+                    sources_lines_final.append("Sources:")
+                continue
+            
+            # Match pattern: "- [B] [DOC: 16a68247]" or "- [B] [DOC:16a68247]"
+            citation_match = re.match(r'^(-\s*\[([A-Z])\]\s*)\[DOC:\s*([a-f0-9]{8})\]\s*$', line, re.IGNORECASE)
+            if citation_match:
+                prefix = citation_match.group(3).lower()
+                letter_part = citation_match.group(1)  # "- [B] "
+                title = prefix_to_title.get(prefix)
+                if title:
+                    # Replace with: "- [B] Document Title" (newline will be added by join)
+                    sources_lines_final.append(f"{letter_part}{title}")
+                else:
+                    # Keep original if title not found
+                    sources_lines_final.append(line)
+            else:
+                # Keep non-citation lines as-is
+                sources_lines_final.append(line)
+        
+        # Rebuild Sources section with each citation on its own line
+        sources_section_replaced = "\n" + "\n".join(sources_lines_final)
+        
+        updated_answer = updated_answer.rstrip()
+        # Add extra spacing before Sources section to make it more visible
+        updated_answer += "\n\n" + sources_section_replaced
+        logger.info(f"Added Sources section to final answer (with title replacements). Sources section length: {len(sources_section_replaced)}")
+    elif pruned_citations:
+        # Fallback: if no Sources section from LLM, use pruned_citations (old behavior)
         updated_answer = updated_answer.rstrip()
         updated_answer += "\n\nSources: " + ", ".join(pruned_citations)
+        logger.info(f"Added fallback Sources section using pruned_citations")
+    else:
+        logger.warning("No Sources section to add - sources_section is empty and no pruned_citations available")
+    
+    # Add preserved "Documents used for analysis" section if we have one
+    # This section MUST be preserved exactly as-is to maintain confidence scores
+    if documents_analysis_section:
+        updated_answer = updated_answer.rstrip()
+        # Preserve the section exactly as extracted (don't strip too aggressively)
+        # Only strip leading/trailing whitespace, preserve internal formatting
+        documents_analysis_clean = documents_analysis_section.strip()
+        updated_answer += "\n\n" + documents_analysis_clean
+        # Verify contribution strength scores are still present after adding (check for both old "confidence" and new "contribution strength")
+        has_contribution_after = '(contribution strength:' in documents_analysis_clean.lower() or 'contribution strength:' in documents_analysis_clean.lower()
+        has_confidence_after = '(confidence:' in documents_analysis_clean.lower() or 'confidence:' in documents_analysis_clean.lower()
+        has_scores_after = has_contribution_after or has_confidence_after
+        logger.info(f"Added 'Documents used for analysis' section to final answer. Section length: {len(documents_analysis_clean)}, has_scores: {has_scores_after}")
+        if not has_scores_after:
+            logger.error("CRITICAL: 'Documents used for analysis' section added but contribution strength scores missing!")
+            logger.error(f"Section content: {documents_analysis_clean[:500]}")
+    else:
+        logger.warning("No 'Documents used for analysis' section to add")
     
     # Step 9: Build document map with "used" status for frontend
     doc_map: List[Dict[str, Any]] = []
@@ -398,6 +659,23 @@ def node_citation_pruner(state: GraphState) -> GraphState:
     
     logger.info(f"Citation pruning complete: {len(used_doc_ids)} document(s) retained")
     logger.info(f"Updated answer preview: {updated_answer[:200]}...")
+    logger.info(f"Final answer contains 'Sources:': {'Sources:' in updated_answer}")
+    logger.info(f"Final answer contains 'Documents used for analysis': {'Documents used for analysis' in updated_answer}")
+    if "Sources:" in updated_answer:
+        sources_start = updated_answer.find("Sources:")
+        logger.info(f"Sources section in final answer: {updated_answer[sources_start:sources_start+300]}...")
+    if "Documents used for analysis" in updated_answer:
+        docs_start = updated_answer.find("Documents used for analysis")
+        # Log more of the section to verify confidence scores are present
+        docs_section_preview = updated_answer[docs_start:docs_start+500]
+        logger.info(f"'Documents used for analysis' section in final answer (length: {len(updated_answer) - docs_start}): {docs_section_preview}...")
+        # Verify contribution strength scores are in the final answer (check for both old "confidence" and new "contribution strength")
+        has_contribution_final = '(contribution strength:' in updated_answer.lower() or 'contribution strength:' in updated_answer.lower()
+        has_confidence_final = '(confidence:' in updated_answer.lower() or 'confidence:' in updated_answer.lower()
+        has_scores_final = has_contribution_final or has_confidence_final
+        logger.info(f"Contribution strength scores present in final answer: {has_scores_final}")
+    else:
+        logger.warning("'Documents used for analysis' section NOT found in final answer!")
     logger.info("-" * 40)
     
     agent_log.log_step(

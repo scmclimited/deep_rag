@@ -13,7 +13,7 @@ class TestPlanner:
     @patch('inference.agents.planner.call_llm')
     def test_planner_basic(self, mock_call_llm):
         """Test basic planning functionality."""
-        mock_call_llm.return_value = "1. Find main topics\n2. Identify key points"
+        mock_call_llm.return_value = ("1. Find main topics\n2. Identify key points", {"input_tokens": 10, "output_tokens": 8, "total_tokens": 18})
         
         state: State = {
             "question": "What is the document about?",
@@ -35,7 +35,7 @@ class TestPlanner:
     @patch('inference.agents.planner.call_llm')
     def test_planner_with_doc_id(self, mock_call_llm):
         """Test planning with doc_id context."""
-        mock_call_llm.return_value = "1. Analyze document content"
+        mock_call_llm.return_value = ("1. Analyze document content", {"input_tokens": 10, "output_tokens": 4, "total_tokens": 14})
         
         state: State = {
             "question": "What is in this document?",
@@ -60,7 +60,7 @@ class TestPlanner:
     @patch('inference.agents.planner.call_llm')
     def test_planner_strips_whitespace(self, mock_call_llm):
         """Test that plan is stripped of whitespace."""
-        mock_call_llm.return_value = "  \n  Plan with whitespace  \n  "
+        mock_call_llm.return_value = ("  \n  Plan with whitespace  \n  ", {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15})
         
         state: State = {
             "question": "Test question",

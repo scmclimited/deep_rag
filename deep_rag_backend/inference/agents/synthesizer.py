@@ -120,7 +120,7 @@ Question: {state['question']}
 Context:
 {context}
 """
-    ans = call_llm("You write precise, sourced answers.", [{"role":"user","content":prompt}], max_tokens=500)
+    ans, _ = call_llm("You write precise, sourced answers.", [{"role":"user","content":prompt}], max_tokens=500)
     state["answer"] = ans.strip() + "\n\nSources: " + ", ".join(citations)
     state["confidence"] = overall_confidence
     

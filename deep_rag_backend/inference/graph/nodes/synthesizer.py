@@ -1,21 +1,37 @@
 """
 Synthesizer node: Generates final answer from evidence.
 """
-import logging
+import os
+from dotenv import load_dotenv
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple, TypedDict, cast
-from inference.graph.state import GraphState
+import logging
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    TypedDict,
+    cast,
+)
+
 from inference.graph.agent_logger import get_agent_logger
+from inference.graph.state import GraphState
+from inference.graph.prompt_templates import format_template
 from inference.llm import call_llm
 from retrieval.confidence import get_confidence_for_chunks
 from retrieval.db_utils import get_document_title
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 agent_log = get_agent_logger()
 
 
-MAX_CONTEXT_CHUNKS = 24  # Increased to allow more context for verbose documents
-MAX_CHUNKS_PER_DOC = 6  # Increased from 2 to allow more chunks per document for long/verbose docs
+MAX_CONTEXT_CHUNKS = int(os.getenv('MAX_CONTEXT_CHUNKS', '24'))  # Increased to allow more context for verbose documents
+MAX_CHUNKS_PER_DOC = int(os.getenv('MAX_CHUNKS_PER_DOC', '6'))  # Increased from 2 to allow more chunks per document for long/verbose docs
 
 EvidenceChunk = Dict[str, Any]
 
@@ -124,9 +140,28 @@ def node_synthesizer(state: GraphState) -> GraphState:
         state.get("action"),
     )
     logger.info("-" * 40)
+    
+
+    def _sort_pages(pages: Iterable[Tuple[Optional[int], Optional[int]]]) -> List[Tuple[Optional[int], Optional[int]]]:
+        def sort_key(item: Tuple[Optional[int], Optional[int]]) -> Tuple[int, int]:
+            start = item[0] if item[0] is not None else 10**6
+            end = item[1] if item[1] is not None else start
+            return (start, end)
+
+        return sorted(pages, key=sort_key)
+
+
+    def _format_page_range(page_range: Tuple[Optional[int], Optional[int]]) -> str:
+        start, end = page_range
+        if start is None:
+            return "p?"
+        if end is not None and end != start:
+            return f"p{start}-{end}"
+        return f"p{start}"
 
     evidence = state.get("evidence") or []
     logger.info(f"Total chunks retrieved: {len(evidence)}")
+
     for idx, chunk in enumerate(evidence):
         doc_ref = chunk.get("doc_id")
         preview = str(chunk.get("text", ""))[:80].replace("\n", " ")
@@ -138,11 +173,11 @@ def node_synthesizer(state: GraphState) -> GraphState:
 
     raw_doc_id = state.get("doc_id")
     doc_id = str(raw_doc_id) if raw_doc_id else None
+
     if doc_id:
         logger.info(f"Primary document requested: {doc_id}")
 
     question_text = state.get("question", "") or ""
-
     doc_stats: Dict[str, DocumentStats] = {}
     doc_aliases: Dict[str, Set[str]] = defaultdict(set)
     doc_order: List[str] = []
@@ -186,7 +221,27 @@ def node_synthesizer(state: GraphState) -> GraphState:
 
     ctx_evs = select_context_chunks(evidence, selected_doc_ids)
     if not ctx_evs:
-        logger.info("No context chunks available - abstaining")
+        logger.warning("=" * 60)
+        logger.warning("SYNTHESIZER: No context chunks available - abstaining")
+        logger.warning(f"Total evidence chunks: {len(evidence)}")
+        logger.warning(f"Selected doc IDs: {selected_doc_ids}")
+        logger.warning(f"Evidence chunks detail:")
+        for idx, chunk in enumerate(evidence):
+            logger.warning(f"  Chunk {idx}: doc_id={chunk.get('doc_id')}, chunk_id={chunk.get('chunk_id')}, p0={chunk.get('p0')}, p1={chunk.get('p1')}")
+        logger.warning("=" * 60)
+        agent_log.log_step(
+            node="synthesizer",
+            action="abstain_no_context",
+            question=question_text,
+            num_chunks=len(evidence),
+            confidence=0.0,
+            iterations=state.get("iterations", 0),
+            metadata={
+                "reason": "No context chunks after selection",
+                "total_evidence": len(evidence),
+                "selected_doc_ids": selected_doc_ids,
+            }
+        )
         abstain_result: Dict[str, Any] = {
             "answer": "I don't know.",
             "confidence": 0.0,
@@ -264,22 +319,109 @@ def node_synthesizer(state: GraphState) -> GraphState:
     for idx, doc_ref in enumerate(doc_order_for_prompt, start=1):
         label = doc_labels.get(doc_ref, doc_ref[:8])
         doc_order_lines.append(f"{idx}. key terms: {label}")
-    doc_order_instruction = "Document order for your response:\n" + "\n".join(doc_order_lines) if doc_order_lines else ""
+    doc_order_instruction = "Documents to use for your response:\n" + "\n".join(doc_order_lines) if doc_order_lines else ""
 
     question_for_confidence = state.get("question", "") or ""
+    
+    # ENHANCEMENT: When document(s) are explicitly selected or attached, use lower confidence threshold
+    # This handles ambiguous queries like "share the details of this document"
+    # Check for explicit selection via:
+    # - selected_doc_ids: User explicitly selected document(s) in UI
+    # - uploaded_doc_ids: User attached/uploaded document(s) 
+    # - doc_id: Document from ingestion/previous query
+    # NOTE: This does NOT apply to cross-doc search (when cross_doc=True and no specific docs selected)
+    #       Cross-doc search uses default threshold since user hasn't explicitly selected documents
+    cross_doc = state.get('cross_doc', False)
+    is_explicit_doc_selection = (
+        (selected_doc_ids and len(selected_doc_ids) > 0) or
+        (uploaded_doc_ids and len(uploaded_doc_ids) > 0) or
+        (doc_id is not None)
+    )
+    # Only use explicit selection threshold if NOT doing cross-doc search without specific docs
+    # If cross_doc=True and no specific docs selected, use default threshold
+    if cross_doc and not is_explicit_doc_selection:
+        is_explicit_doc_selection = False  # Cross-doc without specific selection = default threshold
+    
+    # Get confidence thresholds from environment variables with sensible defaults
+    # Default threshold: 40% for general queries
+    # Explicit selection threshold: Uses THRESH (0.30) converted to percentage (30.0%)
+    #   THRESH is the critic's chunk strength threshold, which aligns with explicit doc selection confidence
+    from inference.graph.constants import THRESH
+    default_threshold = float(os.getenv("SYNTHESIZER_CONFIDENCE_THRESHOLD_DEFAULT", "40.0"))
+    # Convert THRESH (0.30) to percentage (30.0%) for explicit selection threshold
+    # Handle case where env var might contain {THRESH} placeholder or use default
+    explicit_selection_env = os.getenv("SYNTHESIZER_CONFIDENCE_THRESHOLD_EXPLICIT_SELECTION")
+    if explicit_selection_env and explicit_selection_env.strip() not in ["{THRESH}", "{THRESH}*100"]:
+        try:
+            explicit_selection_threshold = float(explicit_selection_env)
+        except ValueError:
+            # If conversion fails, fall back to THRESH * 100
+            explicit_selection_threshold = THRESH * 100
+    else:
+        # Default to THRESH * 100 (30.0%)
+        explicit_selection_threshold = THRESH * 100
+    
+    # Adjust confidence threshold for explicit document selection
+    # When user explicitly selects/attaches document(s), they want analysis even if query is ambiguous
+    # IMPORTANT: This threshold only affects PRE-LLM abstention. The LLM can still return "I don't know"
+    #            which will be detected by citation_pruner and handled appropriately.
+    confidence_threshold = explicit_selection_threshold if is_explicit_doc_selection else default_threshold
+    
+    logger.info(f"Confidence threshold: {confidence_threshold:.1f}% (explicit_selection={is_explicit_doc_selection}, "
+                f"cross_doc={cross_doc}, "
+                f"selected_docs={len(selected_doc_ids) if selected_doc_ids else 0}, "
+                f"uploaded_docs={len(uploaded_doc_ids) if uploaded_doc_ids else 0}, "
+                f"doc_id={'present' if doc_id else 'none'})")
+    
     conf_result = get_confidence_for_chunks(ctx_evs, query=question_for_confidence)
     overall_confidence = conf_result["confidence"]
     overall_probability = conf_result["probability"]
     action = conf_result["action"]
     logger.info(
-        "Confidence %.2f%% (probability=%.3f) action=%s",
+        "Confidence %.2f%% (probability=%.3f) action=%s (threshold=%.1f%%, explicit_selection=%s)",
         overall_confidence,
         overall_probability,
         action,
+        confidence_threshold,
+        is_explicit_doc_selection,
     )
 
-    if action == "abstain" or overall_confidence < 40.0:
-        logger.info("Confidence too low - abstaining")
+    # Pre-LLM confidence check: If confidence is too low, abstain BEFORE calling LLM
+    # This prevents wasting tokens on queries that are unlikely to succeed
+    # NOTE: Even if we pass this check and call the LLM, the LLM can still return "I don't know"
+    #       which will be detected by citation_pruner and handled appropriately (clears citations, etc.)
+    if action == "abstain" or overall_confidence < confidence_threshold:
+        logger.warning("=" * 60)
+        logger.warning("SYNTHESIZER ABSTAINING - CONFIDENCE TOO LOW")
+        logger.warning("=" * 60)
+        logger.warning(f"Question: {question_text}")
+        logger.warning(f"Action from confidence check: {action}")
+        logger.warning(f"Overall confidence: {overall_confidence:.2f}%")
+        logger.warning(f"Confidence threshold: {confidence_threshold:.1f}%")
+        logger.warning(f"Context chunks available: {len(ctx_evs)}")
+        logger.warning(f"Top doc IDs: {top_doc_ids}")
+        logger.warning(f"Selected doc IDs: {selected_doc_ids}")
+        logger.warning("Reason: Confidence below threshold or action='abstain'")
+        logger.warning("=" * 60)
+        logger.info("Returning abstain result")
+        agent_log.log_step(
+            node="synthesizer",
+            action="abstain_low_confidence",
+            question=question_text,
+            num_chunks=len(ctx_evs),
+            confidence=overall_confidence,
+            iterations=state.get("iterations", 0),
+            metadata={
+                "reason": "Confidence below threshold or action='abstain'",
+                "confidence": overall_confidence,
+                "probability": overall_probability,
+                "action": action,
+                "threshold": confidence_threshold,
+                "context_chunks": len(ctx_evs),
+                "top_doc_ids": top_doc_ids,
+                "selected_doc_ids": selected_doc_ids,
+            }
+        )
         abstain_result: Dict[str, Any] = {
             "answer": "I don't know.",
             "confidence": overall_confidence,
@@ -289,26 +431,44 @@ def node_synthesizer(state: GraphState) -> GraphState:
         }
         return cast(GraphState, abstain_result)
 
-    # Build document reference map with titles for citation format
-    doc_ref_map: List[Dict[str, str]] = []
-    for idx, doc_ref in enumerate(top_doc_ids, start=1):
-        doc_title = get_document_title(doc_ref)
-        doc_ref_map.append({
-            "number": str(idx),
-            "doc_id": doc_ref,
-            "doc_prefix": doc_ref[:8],
-            "title": doc_title or f"Document {doc_ref[:8]}",
-            "citation_format": f"[DOC {doc_ref[:8]}]"
-        })
+    # Assign alphabetic citations [A], [B], [C] to chunks in order they appear in ctx_evs
+    # This preserves retrieval order and allows tracking which chunks are used
+    chunk_to_letter: Dict[str, str] = {}  # chunk_id -> letter
+    letter_to_doc_prefix: Dict[str, str] = {}  # letter -> doc_prefix
+    letter_to_chunk: Dict[str, EvidenceChunk] = {}  # letter -> chunk (for confidence tracking)
     
-    # Build document reference list for LLM prompt
+    import string
+    letters = string.ascii_uppercase
+    
+    for idx, chunk in enumerate(ctx_evs):
+        chunk_id = chunk.get("chunk_id", "")
+        doc_id = chunk.get("doc_id", "")
+        doc_prefix = doc_id[:8] if doc_id else ""
+        
+        if chunk_id and idx < len(letters):
+            letter = letters[idx]
+            chunk_to_letter[chunk_id] = letter
+            letter_to_chunk[letter] = chunk
+            if doc_prefix:
+                letter_to_doc_prefix[letter] = doc_prefix
+    
+    # Build document reference list for LLM prompt with alphabetic citations
     doc_reference_list = ""
-    if doc_ref_map:
-        doc_reference_list = "\n\nAvailable Documents (use the citation format when referencing):\n"
-        for doc_info in doc_ref_map:
-            doc_reference_list += f"- Document {doc_info['number']}: {doc_info['title']} (Reference: {doc_info['citation_format']})\n"
-        doc_reference_list += "\nWhen you reference information from a document, use the format [DOC {doc[:8]}] where {doc[:8]} is the first 8 characters of the document ID shown above.\n"
-        doc_reference_list += "Example: If discussing content from Document 1 with ID prefix 'a1b2c3d4', write: According to [DOC a1b2c3d4], the information shows...\n"
+    if ctx_evs:
+        doc_reference_list = "\n\nAvailable Chunks (use alphabetic citations when referencing):\n"
+        for idx, chunk in enumerate(ctx_evs[:26]):  # Limit to 26 chunks (A-Z)
+            chunk_id = chunk.get("chunk_id", "")
+            doc_id = chunk.get("doc_id", "")
+            doc_prefix = doc_id[:8] if doc_id else "unknown"
+            doc_title = get_document_title(doc_id) if doc_id else "Unknown"
+            letter = letters[idx] if idx < len(letters) else "?"
+            
+            # Get chunk preview
+            chunk_text = str(chunk.get("text", ""))[:100].replace("\n", " ")
+            doc_reference_list += f"[{letter}] {doc_title} ({doc_prefix}): {chunk_text}...\n"
+        
+        doc_reference_list += "\nWhen you reference information from a chunk in your answer, use the alphabetic citation [A], [B], [C], etc. corresponding to the chunk letter above.\n"
+        doc_reference_list += "Example: If discussing content from chunk [A], cite it as [A] at the end of the relevant sentence or paragraph."
 
     context_sections: List[str] = []
     if top_doc_ids:
@@ -326,11 +486,19 @@ def node_synthesizer(state: GraphState) -> GraphState:
 
     context = "\n\n---\n\n".join(context_sections)
     order_block = f"{doc_order_instruction}\n\n" if doc_order_instruction else ""
-
-    doc_context = ""
-    if doc_id:
-        doc_context = "\n\nNote: Focus your answer on the identified document."
-
+    
+    # Build Sources format example showing alphabetic citations with DOC prefixes
+    # Format: [A] [DOC: prefix], [B] [DOC: prefix] in order of first use
+    sources_example_lines = []
+    for idx, chunk in enumerate(ctx_evs[:5]):  # Show first 5 as example
+        if idx < len(letters):
+            letter = letters[idx]
+            doc_id = chunk.get("doc_id", "")
+            doc_prefix = doc_id[:8] if doc_id else "unknown"
+            sources_example_lines.append(f"- [{letter}] [DOC: {doc_prefix}]")
+    
+    sources_example = "\n".join(sources_example_lines) if sources_example_lines else "- [A] [DOC: a1b2c3d4]"
+    format = f"""\n\nSources:\n{sources_example}\n\nList sources using alphabetic citations [A], [B], [C], etc. in the order you first mentioned them in your answer. Each letter corresponds to a chunk, followed by [DOC: prefix] where prefix is the 8-character document ID prefix."""
     question_lower = question_text.lower()
     is_content_request = any(
         phrase in question_lower
@@ -346,47 +514,167 @@ def node_synthesizer(state: GraphState) -> GraphState:
     )
     is_multi_doc_query = len(selected_doc_ids) > 1
 
-    if action == "clarify":
-        prompt = f"""{order_block}{doc_reference_list}Using ONLY the context, summarize cautiously in 1–3 sentences.\nIf the answer is incomplete, say what's missing.\nWhen referencing documents, use the format [DOC {{doc[:8]}}] as shown in the document reference list above.{doc_context}\n\nQuestion: {question_text}\n\nContext:\n{context}\n"""
-    elif is_content_request and is_multi_doc_query:
-        prompt = f"""{doc_reference_list}You are analyzing {len(selected_doc_ids)} documents. Provide a comprehensive summary of each document's key information.\n\n
-        CRITICAL INSTRUCTIONS:\n- Extract and present the main content, key points, and important details from EACH document no matter how small the detail may seem.\n-
-        You must reply and cite documents in the order they are mentioned to you, match the ask/request/question, or likely better match the flow of the context and the question or request prose.
-        You must make it explicit when you transition between documents by using the citation format [DOC {{doc[:8]}}] when referencing each document.
-        You must include specific information like names, dates, numbers, and key facts.
-        You must use proper nouns and pronouns correctly.
-        You must be thorough and detailed - the user wants comprehensive information about ALL documents.
-        You must NOT say you cannot share contents - you CAN and SHOULD summarize the key information.
-        You must if the context lacks information needed to answer any portion of the request, reply exactly with "I don't know." and nothing else.
-        When referencing a document, you MUST use the format [DOC {{doc[:8]}}] as shown in the document reference list above.
-        Organize your answer by document and use the citation format when transitioning between documents.\n- 
-        Follow the document order listed below exactly\n- 
-        Be thorough and detailed - the user wants comprehensive information about ALL documents\n- 
-        Do NOT say you cannot share contents - you CAN and SHOULD summarize the key information\n- 
-        If the context lacks information needed to answer any portion of the request, reply exactly with "I don't know." and nothing else\n- 
-        Use the citation format [DOC {{doc[:8]}}] when referencing documents in your answer\n\n{order_block}Question: {question_text}{doc_context}\n\nContext from {len(selected_doc_ids)} documents:\n{context}\n"""
+    if is_content_request and is_multi_doc_query:
+        prompt = format_template(
+            "synthesizer_content_multi_doc",
+            doc_reference_list=doc_reference_list,
+            num_documents=len(selected_doc_ids),
+            citation_format=format,
+            order_block=order_block,
+            question_lower=question_lower,
+            context=context
+        )
     else:
-        prompt = f"""{doc_reference_list}Answer the question using ONLY the context provided.\n\n
-        CRITICAL INSTRUCTIONS:\n- If insufficient evidence exists, say "I don't know."\n-
-        You must include specific information like names, dates, numbers, and key facts.
-        You must use proper nouns and pronouns correctly.\n- 
-        Your refusal must be exactly "I don't know." with no extra text when the answer cannot be determined from the context.\n- 
-        When referencing information from a document, you MUST not forget to format and cite the document with the citation format [DOC {{doc[:8]}}] as shown in the document reference list above.\n- 
-        Do NOT describe or mention documents that are not directly relevant to answering the question.\n- 
-        Do NOT fabricate relationships between documents unless explicitly stated in the context.\n- 
-        Focus ONLY on information that directly answers the question.\n-
-        You do not exist as an entity, you are a helpful asssistant who is only there to extract information or described what is presented given the posed question or request: {question_text}.  
-        If the context contains multiple documents, only discuss those that are actually relevant to the answer and use the citation format when referencing them.\n- 
-        Follow the document order listed (if provided) when structuring your answer.\n\n{order_block}Provide a clear, direct answer based on the context. When you reference information from a document, use the format [DOC {{doc[:8]}}] as shown above.{doc_context}\n\nQuestion: {question_text}\n\nContext:\n{context}\n"""
+        prompt = format_template(
+            "synthesizer_standard",
+            doc_reference_list=doc_reference_list,
+            question_text=question_text,
+            citation_format=format,
+            order_block=order_block,
+            question_lower=question_lower,
+            num_documents=len(selected_doc_ids),
+            context=context
+        )
 
+    # Build ranked citations with confidence scores for chunks actually used in inference
+    def calculate_chunk_confidence(chunk: EvidenceChunk) -> float:
+        """Calculate per-chunk confidence score based on lex, vec, and ce scores."""
+        lex_score = float(chunk.get("lex", 0.0) or 0.0)
+        vec_score = float(chunk.get("vec", 0.0) or 0.0)
+        ce_score = float(chunk.get("ce", 0.0) or 0.0)
+        
+        # Weighted combination: prioritize cross-encoder if available, otherwise use vec+lex
+        if ce_score > 0:
+            # Cross-encoder is most reliable, weight it higher
+            chunk_confidence = (0.2 * lex_score + 0.3 * vec_score + 0.5 * ce_score) * 100
+        else:
+            # Fallback to vector + lexical combination
+            chunk_confidence = (0.4 * lex_score + 0.6 * vec_score) * 100
+        
+        return chunk_confidence
+    
+    # Calculate confidence for each chunk and group by page for "Documents used for analysis"
+    # Group chunks by (doc_id, page) to show confidence per page
+    page_confidence_map: Dict[Tuple[str, Optional[int]], List[float]] = defaultdict(list)
+    
+    for chunk in ctx_evs:
+        doc_id = chunk.get("doc_id", "")
+        p0 = chunk.get("p0")
+        page_key = (doc_id, p0)
+        confidence = calculate_chunk_confidence(chunk)
+        page_confidence_map[page_key].append(confidence)
+    
+    # Calculate average confidence per document (across all pages) for ranking
+    # Group all confidences by document to calculate overall document contribution strength
+    doc_all_confidences: Dict[str, List[float]] = defaultdict(list)
+    for (doc_id, _), confidences in page_confidence_map.items():
+        doc_all_confidences[doc_id].extend(confidences)
+    
+    # Calculate average confidence per document (contribution strength)
+    doc_avg_confidence: Dict[str, float] = {}
+    for doc_id, all_confidences in doc_all_confidences.items():
+        if all_confidences:
+            doc_avg_confidence[doc_id] = sum(all_confidences) / len(all_confidences)
+        else:
+            doc_avg_confidence[doc_id] = 0.0
+    
+    # Sort documents by their average contribution strength (confidence) - descending
+    # This ensures the most relevant documents appear first
+    sorted_docs_by_confidence = sorted(
+        doc_avg_confidence.items(),
+        key=lambda item: -item[1],  # Sort by confidence descending
+    )
+    
+    # Create a mapping from doc_id to rank based on contribution strength
+    doc_rank_map: Dict[str, int] = {}
+    for rank, (doc_id, _) in enumerate(sorted_docs_by_confidence, start=1):
+        doc_rank_map[doc_id] = rank
+    
+    # Calculate average confidence per page and build page-level citations
+    page_citations = []
+    for (doc_id, page_num), confidences in page_confidence_map.items():
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+        
+        # Get document title
+        doc_title = None
+        if doc_id:
+            doc_title = get_document_title(doc_id)
+        
+        # Format page
+        if isinstance(page_num, int):
+            page_str = f"p{page_num}"
+        else:
+            page_str = "p?"
+        
+        # Get doc rank based on contribution strength (not top_doc_ids order)
+        doc_rank = doc_rank_map.get(doc_id)
+        
+        if doc_rank:
+            doc_label = doc_title if doc_title else doc_id[:8]
+            # Store: (doc_rank, doc_label, page_str, avg_confidence, doc_id, page_num)
+            # page_num is kept for secondary sorting by page number when confidence is equal
+            page_citations.append((doc_rank, doc_label, page_str, avg_confidence, doc_id, page_num))
+    
+    # Sort by document rank (contribution strength), then by contribution strength descending within each document
+    # If contribution strength is equal, sort by page number ascending
+    page_citations.sort(key=lambda x: (
+        x[0],  # Document rank
+        -x[3],  # Contribution strength (negative for descending)
+        x[5] if isinstance(x[5], int) else 999  # Page number (ascending) as tiebreaker
+    ))
+    
+    # Build ranked citations for "Documents used for analysis" section
+    ranked_citations = []
+    for doc_rank, doc_label, page_str, avg_confidence, doc_id, _ in page_citations:
+        citation = f"[{doc_rank}] \"{doc_label}\" - Page: {page_str} - (contribution strength: {avg_confidence:.1f}%)"
+        ranked_citations.append(citation)
+        logger.debug(f"Page citation: {citation}")
+    
+    logger.info(f"Built {len(ranked_citations)} page-level citations from {len(ctx_evs)} context chunks")
     logger.info("Invoking LLM for synthesis")
-    llm_response = call_llm(
-        "You write precise, grounded answers. Avoid speculation and keep sources aligned. Answer with I dont know if you cannot ground your answer.",
+    logger.info(f"Prompt length: {len(prompt)} characters")
+    logger.info(f"Context chunks: {len(ctx_evs)}, Top doc IDs: {top_doc_ids}")
+    
+    # Estimate input tokens (rough approximation: ~4 characters per token)
+    system_prompt = "You write precise, grounded answers. Avoid speculation and keep sources aligned. Answer with I dont know if you cannot ground your answer."
+    estimated_input_tokens = (len(system_prompt) + len(prompt)) // 4
+    logger.info(f"Estimated input tokens: ~{estimated_input_tokens} (based on character count)")
+    
+    llm_response, token_info = call_llm(
+        system_prompt,
         [{"role": "user", "content": prompt}],
-        max_tokens=1500,
+        max_tokens=1800,
         temperature=0.2,
     )
-    answer_text = llm_response.strip()
+    
+    # Log token usage
+    input_tokens = token_info.get("input_tokens", 0)
+    output_tokens = token_info.get("output_tokens", 0)
+    total_tokens = token_info.get("total_tokens", 0)
+    logger.info("=" * 60)
+    logger.info("TOKEN USAGE:")
+    logger.info(f"  Input tokens: {input_tokens}")
+    logger.info(f"  Output tokens: {output_tokens}")
+    logger.info(f"  Total tokens: {total_tokens}")
+    if estimated_input_tokens > 0 and input_tokens > 0:
+        logger.info(f"  Estimation accuracy: {abs(estimated_input_tokens - input_tokens) / input_tokens * 100:.1f}% difference")
+    logger.info("=" * 60)
+    
+    # Log raw LLM response for debugging
+    raw_answer = llm_response.strip()
+    logger.info("=" * 60)
+    logger.info("RAW LLM RESPONSE FROM SYNTHESIZER:")
+    logger.info(f"Length: {len(raw_answer)} characters")
+    logger.info(f"First 500 chars: {raw_answer[:500]}")
+    logger.info(f"Full response: {raw_answer}")
+    logger.info("=" * 60)
+    
+    answer_text = raw_answer
+    
+    # Add calculated and ranked citations showing which pages were most relevant for the answer
+    if ranked_citations:
+        answer_text += "\n\nDocuments used for analysis (ranked by contribution strength):\n" + "\n".join(ranked_citations)
+    
     
     # Build citations for all top_doc_ids (pruning will happen in citation_pruner)
     citations: List[str] = []
@@ -425,15 +713,21 @@ def node_synthesizer(state: GraphState) -> GraphState:
     # Don't add Sources section here - citation_pruner will handle it
 
     primary_doc = doc_id or (top_doc_ids[0] if top_doc_ids else None)
-    final_action = "clarify" if action == "clarify" else "answer"
+    # Synthesizer only determines if it can answer or must abstain
+    # Clarification/refinement is handled by compressor/critic loop
+    final_action = "abstain" if action == "abstain" else "answer"
     
     # Pass through all top_doc_ids - citation_pruner will prune based on LLM answer
+    # Also pass letter mappings for tracking chunk usage and confidence
     result_payload: Dict[str, Any] = {
         "answer": final_answer,
         "confidence": overall_confidence,
         "action": final_action,
         "doc_ids": top_doc_ids,  # Pass all documents - pruner will filter
         "pages": sorted(set(page_numbers)),
+        "chunk_to_letter": chunk_to_letter,  # For tracking which chunks were used
+        "letter_to_doc_prefix": letter_to_doc_prefix,  # For mapping letters to doc prefixes
+        "letter_to_chunk": {k: v.get("chunk_id", "") for k, v in letter_to_chunk.items()},  # For confidence tracking
     }
     if primary_doc:
         result_payload["doc_id"] = primary_doc
@@ -463,21 +757,3 @@ def node_synthesizer(state: GraphState) -> GraphState:
     )
 
     return cast(GraphState, result_payload)
-
-
-def _sort_pages(pages: Iterable[Tuple[Optional[int], Optional[int]]]) -> List[Tuple[Optional[int], Optional[int]]]:
-    def sort_key(item: Tuple[Optional[int], Optional[int]]) -> Tuple[int, int]:
-        start = item[0] if item[0] is not None else 10**6
-        end = item[1] if item[1] is not None else start
-        return (start, end)
-
-    return sorted(pages, key=sort_key)
-
-
-def _format_page_range(page_range: Tuple[Optional[int], Optional[int]]) -> str:
-    start, end = page_range
-    if start is None:
-        return "p?"
-    if end is not None and end != start:
-        return f"p{start}-{end}"
-    return f"p{start}"

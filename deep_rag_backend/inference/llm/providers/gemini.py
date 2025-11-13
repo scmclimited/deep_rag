@@ -15,7 +15,7 @@ def gemini_chat(
     messages: List[Dict[str, str]],
     max_tokens: int,
     temperature: float
-) -> str:
+) -> tuple[str, Dict[str, int]]:
     """
     Gemini chat implementation using Google's new GenAI SDK (google-genai).
     Based on: https://github.com/googleapis/python-genai
@@ -76,6 +76,14 @@ def gemini_chat(
                 config=config
             )
         
+        # Extract token usage information from response
+        token_info = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        if hasattr(response, 'usage_metadata') and response.usage_metadata:
+            usage = response.usage_metadata
+            token_info["input_tokens"] = getattr(usage, 'prompt_token_count', 0) or 0
+            token_info["output_tokens"] = getattr(usage, 'candidates_token_count', 0) or 0
+            token_info["total_tokens"] = getattr(usage, 'total_token_count', 0) or 0
+        
         # Try to get text directly from response.text property first
         # Note: response.text is a computed property that extracts from candidates[0].content.parts
         # If parts is None (e.g., MAX_TOKENS), text might be None even if hasattr returns True
@@ -84,7 +92,7 @@ def gemini_chat(
                 text_value = response.text
                 # Check if text_value is not None and not empty
                 if text_value and str(text_value).strip():
-                    return str(text_value).strip()
+                    return str(text_value).strip(), token_info
             except (AttributeError, TypeError, Exception) as e:
                 logger.debug(f"Could not access response.text: {e}")
                 pass
@@ -101,7 +109,7 @@ def gemini_chat(
                     if part is not None and hasattr(part, 'text') and part.text:
                         text_parts.append(part.text)
                 if text_parts:
-                    return " ".join(text_parts).strip()
+                    return " ".join(text_parts).strip(), token_info
             
             # Handle case where parts is None (e.g., MAX_TOKENS finish_reason)
             # When parts is None, the response might still have generated text before hitting the limit
@@ -114,7 +122,7 @@ def gemini_chat(
                     
                     # Try to access text directly on content if available
                     if hasattr(candidate.content, 'text') and candidate.content.text:
-                        return candidate.content.text.strip()
+                        return candidate.content.text.strip(), token_info
                     
                     # If finish_reason is MAX_TOKENS, the response was truncated
                     # In this case, we might need to return an error or partial response

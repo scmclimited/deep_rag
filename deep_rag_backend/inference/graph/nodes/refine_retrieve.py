@@ -43,24 +43,57 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
     doc_id = state.get('doc_id')
     selected_doc_ids = state.get('selected_doc_ids')
     cross_doc = state.get('cross_doc', False)
+    uploaded_doc_ids = state.get('uploaded_doc_ids')
     doc_ids_found = set(state.get('doc_ids', []))
     hits_all: List[Dict[str, Any]] = []
     
-    # CRITICAL FIX: If specific documents are selected, query those documents (ignore cross_doc flag)
-    # cross_doc flag only applies when no specific documents are selected
+    # When uploaded_doc_ids is present:
+    # - If cross_doc=False: Scope to ONLY attached documents (like selected documents)
+    # - If cross_doc=True: Prioritize attached documents but allow cross-doc retrieval
+    # We don't force cross_doc=False here - we respect the user's cross_doc setting
+    if uploaded_doc_ids and len(uploaded_doc_ids) > 0:
+        if cross_doc:
+            logger.info(f"🔄 uploaded_doc_ids present in refine_retrieve ({len(uploaded_doc_ids)} document(s)) with cross_doc=True - will prioritize attached docs but allow cross-doc")
+        else:
+            logger.info(f"🔒 uploaded_doc_ids present in refine_retrieve ({len(uploaded_doc_ids)} document(s)) with cross_doc=False - will scope to ONLY attached documents")
+    
+    # CRITICAL FIX: If specific documents are selected or uploaded, query those documents (ignore cross_doc flag)
+    # cross_doc flag only applies when no specific documents are selected or uploaded
     doc_ids_to_filter = None
     if selected_doc_ids and len(selected_doc_ids) > 0:
         doc_ids_to_filter = list(selected_doc_ids)
+        # Add uploaded_doc_ids if provided
+        if uploaded_doc_ids and len(uploaded_doc_ids) > 0:
+            for uploaded_id in uploaded_doc_ids:
+                if uploaded_id not in doc_ids_to_filter:
+                    doc_ids_to_filter.append(uploaded_id)
+        if doc_id and doc_id not in doc_ids_to_filter:
+            doc_ids_to_filter.append(doc_id)
+    elif uploaded_doc_ids and len(uploaded_doc_ids) > 0:
+        # Only uploaded_doc_ids provided (no selected_doc_ids)
+        doc_ids_to_filter = list(uploaded_doc_ids)
         if doc_id and doc_id not in doc_ids_to_filter:
             doc_ids_to_filter.append(doc_id)
     elif doc_id:
         doc_ids_to_filter = [doc_id]
     
     # Determine doc_id and cross_doc for retrieval
+    # When specific documents are selected/uploaded:
+    # - If cross_doc=False: Query only those documents
+    # - If cross_doc=True: Query those documents first, then supplement with cross-doc if needed
     if doc_ids_to_filter and len(doc_ids_to_filter) > 0:
-        doc_id_for_retrieval = doc_ids_to_filter[0]
-        cross_doc_for_retrieval = False  # Force single-doc when specific doc is selected
-        logger.info(f"Refinement queries will target specific document: {doc_id_for_retrieval[:8]}... (cross_doc flag ignored)")
+        if cross_doc:
+            # HYBRID MODE: Prioritize selected/uploaded docs but allow cross-doc
+            if len(doc_ids_to_filter) > 1:
+                logger.info(f"Refinement queries will prioritize {len(doc_ids_to_filter)} specific document(s) with cross-doc enabled")
+            else:
+                logger.info(f"Refinement queries will prioritize specific document: {doc_ids_to_filter[0][:8]}... with cross-doc enabled")
+        else:
+            # Scoped mode: Only query selected/uploaded documents
+            if len(doc_ids_to_filter) > 1:
+                logger.info(f"Refinement queries will target {len(doc_ids_to_filter)} specific document(s) (cross_doc disabled)")
+            else:
+                logger.info(f"Refinement queries will target specific document: {doc_ids_to_filter[0][:8]}... (cross_doc disabled)")
     else:
         doc_id_for_retrieval = None
         cross_doc_for_retrieval = cross_doc
@@ -69,13 +102,38 @@ def node_refine_retrieve(state: GraphState) -> GraphState:
     
     for idx, rq in enumerate(refinements, 1):
         logger.info(f"Refinement {idx}/{len(refinements)}: {rq}")
-        hits = retrieve_hybrid(rq, k, k_lex, k_vec, doc_id=doc_id_for_retrieval, cross_doc=cross_doc_for_retrieval)
-        
-        # Filter hits to only include selected doc_ids if specific documents were selected
+        # If specific documents are selected/uploaded
         if doc_ids_to_filter and len(doc_ids_to_filter) > 0:
-            doc_ids_set = set(doc_ids_to_filter)
-            hits = [h for h in hits if h.get('doc_id') in doc_ids_set]
-            logger.info(f"  Retrieved {len(hits)} chunks (filtered to selected documents)")
+            hits = []
+            # First, retrieve from selected/uploaded documents
+            for doc_id_for_retrieval in doc_ids_to_filter:
+                doc_hits = retrieve_hybrid(rq, k, k_lex, k_vec, doc_id=doc_id_for_retrieval, cross_doc=False)
+                hits.extend(doc_hits)
+                logger.info(f"  Retrieved {len(doc_hits)} chunks from document: {doc_id_for_retrieval[:8]}...")
+            
+            # If cross_doc=True and we have limited coverage, supplement with cross-doc retrieval
+            if cross_doc and len(hits) < 12:
+                logger.info(f"  Limited coverage ({len(hits)} chunks) - supplementing with cross-doc retrieval")
+                cross_doc_hits = retrieve_hybrid(rq, k, k_lex, k_vec, doc_id=None, cross_doc=True)
+                # Filter to exclude chunks from already-retrieved documents
+                doc_ids_set = set(doc_ids_to_filter)
+                cross_doc_hits_filtered = [h for h in cross_doc_hits if h.get('doc_id') not in doc_ids_set]
+                hits.extend(cross_doc_hits_filtered)
+                logger.info(f"  Added {len(cross_doc_hits_filtered)} chunks from cross-doc retrieval")
+        else:
+            hits = retrieve_hybrid(rq, k, k_lex, k_vec, doc_id=None, cross_doc=cross_doc)
+        
+        # Filter hits based on cross_doc setting
+        if doc_ids_to_filter and len(doc_ids_to_filter) > 0:
+            if cross_doc:
+                # cross_doc=True: Allow hits from selected/uploaded docs AND cross-doc hits
+                # (hits already include both from the logic above)
+                logger.info(f"  Retrieved {len(hits)} chunks (prioritized from selected/uploaded docs, supplemented with cross-doc)")
+            else:
+                # cross_doc=False: Only allow hits from selected/uploaded documents
+                doc_ids_set = set(doc_ids_to_filter)
+                hits = [h for h in hits if h.get('doc_id') in doc_ids_set]
+                logger.info(f"  Retrieved {len(hits)} chunks (filtered to selected/uploaded documents only)")
         else:
             logger.info(f"  Retrieved {len(hits)} chunks")
         
